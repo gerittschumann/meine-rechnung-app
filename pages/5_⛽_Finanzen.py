@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from utils.supabase_utils import supabase
+from utils.offline_utils import safe_insert
 
 st.title("⛽ Ausgaben & Einnahmen")
 
-# -----------------------------
-# FINANZDATEN LADEN
-# -----------------------------
 def load_fin():
     data = supabase.table("finanzen").select("*").order("datum", desc=True).execute().data
     df = pd.DataFrame(data)
@@ -23,9 +21,6 @@ def load_fin():
 
 fin_df = load_fin()
 
-# -----------------------------
-# NEUEN EINTRAG ERSTELLEN
-# -----------------------------
 st.subheader("Neuen Eintrag hinzufügen")
 
 col1, col2 = st.columns(2)
@@ -44,20 +39,17 @@ if st.button("💾 Eintrag speichern"):
         st.error("Bitte eine Kategorie eingeben.")
         st.stop()
 
-    supabase.table("finanzen").insert({
+    safe_insert("finanzen", {
         "datum": datum.isoformat(),
         "typ": typ,
         "kategorie": kategorie,
         "referenz": referenz,
         "betrag": betrag
-    }).execute()
+    })
 
-    st.success("Eintrag gespeichert!")
+    st.success("Eintrag gespeichert (online oder offline)!")
     st.rerun()
 
-# -----------------------------
-# TABELLE ANZEIGEN
-# -----------------------------
 st.subheader("Letzte Einträge")
 
 if fin_df.empty:
@@ -66,9 +58,6 @@ else:
     fin_df["datum"] = pd.to_datetime(fin_df["datum"], errors="coerce")
     st.dataframe(fin_df)
 
-# -----------------------------
-# EINTRAG LÖSCHEN
-# -----------------------------
 st.subheader("Eintrag löschen")
 
 if fin_df.empty:
