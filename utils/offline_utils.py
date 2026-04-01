@@ -1,15 +1,9 @@
 import streamlit as st
-from utils.supabase_utils import get_supabase
-
-# ---------------------------------------------------
-# Supabase Client erzeugen (erst wenn Streamlit läuft)
-# ---------------------------------------------------
-supabase = get_supabase()
 
 # ---------------------------------------------------
 # Offline gespeicherte Einträge synchronisieren
 # ---------------------------------------------------
-def sync_pending():
+def sync_pending(supabase):
     # Falls keine Offline-Daten existieren → nichts tun
     if "offline_entries" not in st.session_state:
         return 0
