@@ -1,23 +1,7 @@
 import streamlit as st
 
-# Supabase-Funktionen importieren
-from utils.supabase_utils import (
-    get_supabase,
-    get_belege_df,
-    get_positionen_df,
-    upload_pdf_to_supabase
-)
-
-# Offline-Sync importieren
-from utils.offline_utils import sync_pending
-
 # ---------------------------------------------------
-# Supabase Client erzeugen (JETZT ist Streamlit bereit)
-# ---------------------------------------------------
-supabase = get_supabase()
-
-# ---------------------------------------------------
-# Streamlit UI
+# Streamlit Page Config – MUSS GANZ OBEN STEHEN
 # ---------------------------------------------------
 st.set_page_config(
     page_title="Nebengewerbe App",
@@ -25,6 +9,29 @@ st.set_page_config(
     layout="wide"
 )
 
+# ---------------------------------------------------
+# Supabase-Funktionen importieren
+# ---------------------------------------------------
+from utils.supabase_utils import (
+    get_supabase,
+    get_belege_df,
+    get_positionen_df,
+    upload_pdf_to_supabase
+)
+
+# ---------------------------------------------------
+# Offline-Sync importieren
+# ---------------------------------------------------
+from utils.offline_utils import sync_pending
+
+# ---------------------------------------------------
+# Supabase Client erzeugen
+# ---------------------------------------------------
+supabase = get_supabase()
+
+# ---------------------------------------------------
+# Streamlit UI
+# ---------------------------------------------------
 st.title("🏠 Dashboard")
 st.write("Willkommen in deiner Nebengewerbe-App!")
 
