@@ -1,12 +1,10 @@
 import streamlit as st
 import pandas as pd
 from utils.supabase_utils import supabase
+from utils.offline_utils import safe_insert
 
 st.title("👤 Kundenverwaltung")
 
-# -----------------------------
-# KUNDEN LADEN
-# -----------------------------
 def load_kunden():
     data = supabase.table("kunden").select("*").order("name").execute().data
     df = pd.DataFrame(data)
@@ -22,9 +20,6 @@ def load_kunden():
 
 kunden_df = load_kunden()
 
-# -----------------------------
-# KUNDENLISTE ANZEIGEN
-# -----------------------------
 st.subheader("Kundenliste")
 
 if kunden_df.empty:
@@ -32,9 +27,6 @@ if kunden_df.empty:
 else:
     st.dataframe(kunden_df)
 
-# -----------------------------
-# NEUEN KUNDEN ANLEGEN
-# -----------------------------
 st.subheader("Neuen Kunden anlegen")
 
 col1, col2 = st.columns(2)
@@ -52,19 +44,16 @@ if st.button("➕ Kunden speichern"):
         st.error("Bitte mindestens einen Namen eingeben.")
         st.stop()
 
-    supabase.table("kunden").insert({
+    safe_insert("kunden", {
         "name": name,
         "adresse": adresse,
         "telefon": telefon,
         "email": email
-    }).execute()
+    })
 
-    st.success("Kunde gespeichert!")
+    st.success("Kunde gespeichert (online oder offline)!")
     st.rerun()
 
-# -----------------------------
-# KUNDEN BEARBEITEN / LÖSCHEN
-# -----------------------------
 st.subheader("Kunde bearbeiten oder löschen")
 
 if kunden_df.empty:
@@ -97,4 +86,5 @@ else:
     with colB:
         if st.button("🗑️ Kunde löschen"):
             supabase.table("kunden").delete().eq("id", kunde["id"]).execute()
-            st.warning("Kunde gelöscht
+            st.warning("Kunde gelöscht!")
+            st.rerun()
