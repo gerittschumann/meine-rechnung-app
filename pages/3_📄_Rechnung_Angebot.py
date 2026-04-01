@@ -1,28 +1,20 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils.supabase_utils import supabase, upload_pdf_to_supabase
+from utils.supabase_utils import upload_pdf_to_supabase
 from utils.pdf_utils import create_document
+from utils.offline_utils import safe_insert
 
 st.title("📄 Rechnung / Angebot erstellen")
 
-# -----------------------------
-# WARENKORB INITIALISIEREN
-# -----------------------------
 if "cart" not in st.session_state:
     st.session_state.cart = []
 
-# -----------------------------
-# KUNDENDATEN
-# -----------------------------
 st.subheader("Kundendaten")
 
 kunde = st.text_input("Kunde")
 adresse = st.text_area("Adresse")
 
-# -----------------------------
-# POSITION HINZUFÜGEN
-# -----------------------------
 st.subheader("Position hinzufügen")
 
 col1, col2, col3, col4 = st.columns(4)
@@ -47,9 +39,6 @@ with col4:
         })
         st.success("Position hinzugefügt!")
 
-# -----------------------------
-# WARENKORB ANZEIGEN
-# -----------------------------
 st.subheader("Aktuelle Positionen")
 
 if len(st.session_state.cart) == 0:
@@ -58,16 +47,10 @@ else:
     df = pd.DataFrame(st.session_state.cart)
     st.table(df)
 
-# -----------------------------
-# DOKUMENTTYP
-# -----------------------------
 st.subheader("Dokumenttyp wählen")
 
 typ = st.selectbox("Typ", ["Rechnung", "Angebot"])
 
-# -----------------------------
-# SPEICHERN
-# -----------------------------
 if st.button("📄 Dokument erstellen & speichern"):
 
     if kunde.strip() == "" or adresse.strip() == "":
@@ -78,11 +61,9 @@ if st.button("📄 Dokument erstellen & speichern"):
         st.error("Bitte mindestens eine Position hinzufügen.")
         st.stop()
 
-    # Nummer erzeugen
     jahr = datetime.now().year
     nummer = f"{typ[:2].upper()}-{jahr}-{int(datetime.now().timestamp())}"
 
-    # PDF erzeugen
     pdf_bytes = create_document(
         kunde,
         adresse,
@@ -93,11 +74,9 @@ if st.button("📄 Dokument erstellen & speichern"):
         ist_vorschau=False
     )
 
-    # PDF hochladen
     pdf_url = upload_pdf_to_supabase(pdf_bytes, f"{nummer}.pdf")
 
-    # In Supabase speichern
-    supabase.table("belege").insert({
+    safe_insert("belege", {
         "nr": nummer,
         "kunde": kunde,
         "adresse": adresse,
@@ -106,19 +85,18 @@ if st.button("📄 Dokument erstellen & speichern"):
         "betrag": sum([p["gesamt"] for p in st.session_state.cart]),
         "stunden": None,
         "pdf_url": pdf_url
-    }).execute()
+    })
 
-    # Positionen speichern
     for p in st.session_state.cart:
-        supabase.table("positionen").insert({
+        safe_insert("positionen", {
             "beleg_nr": nummer,
             "leistung": p["leistung"],
             "menge": p["menge"],
             "preis": p["preis"],
             "gesamt": p["gesamt"]
-        }).execute()
+        })
 
-    st.success(f"{typ} erfolgreich erstellt!")
+    st.success(f"{typ} erfolgreich erstellt (online oder offline gespeichert)!")
     st.write("Download-Link:")
     st.write(pdf_url)
 
