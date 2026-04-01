@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from utils.supabase_utils import supabase
+from utils.offline_utils import safe_insert
 
 st.title("🚗 Fahrtenbuch")
 
-# -----------------------------
-# FAHRTEN LADEN
-# -----------------------------
 def load_fahrten():
     data = supabase.table("fahrtenbuch").select("*").order("datum", desc=True).execute().data
     df = pd.DataFrame(data)
@@ -23,9 +21,6 @@ def load_fahrten():
 
 fahrten_df = load_fahrten()
 
-# -----------------------------
-# NEUE FAHRT EINTRAGEN
-# -----------------------------
 st.subheader("Neue Fahrt eintragen")
 
 col1, col2 = st.columns(2)
@@ -44,20 +39,17 @@ if st.button("💾 Fahrt speichern"):
         st.error("Bitte Start und Ziel eingeben.")
         st.stop()
 
-    supabase.table("fahrtenbuch").insert({
+    safe_insert("fahrtenbuch", {
         "datum": datum.isoformat(),
         "start": start,
         "ziel": ziel,
         "zweck": zweck,
         "kilometer": kilometer
-    }).execute()
+    })
 
-    st.success("Fahrt gespeichert!")
+    st.success("Fahrt gespeichert (online oder offline)!")
     st.rerun()
 
-# -----------------------------
-# FAHRTEN ANZEIGEN
-# -----------------------------
 st.subheader("Alle Fahrten")
 
 if fahrten_df.empty:
@@ -66,9 +58,6 @@ else:
     fahrten_df["datum"] = pd.to_datetime(fahrten_df["datum"], errors="coerce")
     st.dataframe(fahrten_df)
 
-# -----------------------------
-# KILOMETERPAUSCHALE
-# -----------------------------
 st.subheader("Kilometerpauschale")
 
 if fahrten_df.empty:
@@ -80,9 +69,6 @@ else:
     st.write(f"**Gesamtkilometer:** {gesamt_km:.1f} km")
     st.write(f"**Kilometerpauschale (0,30 €):** {pauschale:.2f} €")
 
-# -----------------------------
-# FAHRT LÖSCHEN
-# -----------------------------
 st.subheader("Fahrt löschen")
 
 if fahrten_df.empty:
