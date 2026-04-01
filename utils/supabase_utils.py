@@ -2,17 +2,19 @@ import streamlit as st
 from supabase import create_client
 import pandas as pd
 
-# Supabase Client laden
+# ---------------------------------------------------
+# Supabase Client laden (wird erst ausgeführt, wenn Streamlit läuft)
+# ---------------------------------------------------
 @st.cache_resource
 def get_supabase():
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-# -----------------------------
+# ---------------------------------------------------
 # BELEGE LADEN
-# -----------------------------
-def get_belege_df():
+# ---------------------------------------------------
+def get_belege_df(supabase):
     data = supabase.table("belege").select("*").order("datum").execute().data
     df = pd.DataFrame(data)
 
@@ -22,10 +24,10 @@ def get_belege_df():
 
     return df
 
-# -----------------------------
+# ---------------------------------------------------
 # POSITIONEN LADEN
-# -----------------------------
-def get_positionen_df():
+# ---------------------------------------------------
+def get_positionen_df(supabase):
     data = supabase.table("positionen").select("*").execute().data
     df = pd.DataFrame(data)
 
@@ -35,10 +37,10 @@ def get_positionen_df():
 
     return df
 
-# -----------------------------
+# ---------------------------------------------------
 # PDF HOCHLADEN
-# -----------------------------
-def upload_pdf_to_supabase(pdf_bytes, filename):
+# ---------------------------------------------------
+def upload_pdf_to_supabase(supabase, pdf_bytes, filename):
     path = f"pdfs/{filename}"
     supabase.storage.from_("pdfs").upload(path, pdf_bytes, {"content-type": "application/pdf"})
     url = supabase.storage.from_("pdfs").get_public_url(path)
