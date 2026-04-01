@@ -9,8 +9,6 @@ def get_supabase():
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-supabase = get_supabase()
-
 # -----------------------------
 # BELEGE LADEN
 # -----------------------------
