@@ -40,7 +40,7 @@ st.info("Nutze das Menü links, um Rechnungen, Angebote, Quittungen, Ausgaben, F
 # ---------------------------------------------------
 # Offline gespeicherte Einträge synchronisieren
 # ---------------------------------------------------
-synced = sync_pending()
+synced = sync_pending(supabase)
 if synced > 0:
     st.success(f"{synced} offline gespeicherte Einträge wurden synchronisiert.")
 
