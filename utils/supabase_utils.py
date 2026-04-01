@@ -1,47 +1,24 @@
 import streamlit as st
-from supabase import create_client
-import pandas as pd
+from supabase import create_client, Client
 
-# ---------------------------------------------------
-# Supabase Client laden (wird erst ausgeführt, wenn Streamlit läuft)
-# ---------------------------------------------------
 @st.cache_resource
-def get_supabase():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+def get_supabase() -> Client:
+    # Secrets laden
+    url = st.secrets.get("SUPABASE_URL", None)
+    key = st.secrets.get("SUPABASE_KEY", None)
+
+    # DEBUG-AUSGABE
+    st.write("DEBUG: SUPABASE_URL =", url)
+    st.write("DEBUG: SUPABASE_KEY (Anfang) =", key[:10] + "..." if key else None)
+
+    # Fehlerbehandlung
+    if not url or not isinstance(url, str) or not url.startswith("https://"):
+        st.error("Supabase URL ist ungültig oder fehlt.")
+        raise ValueError("Supabase URL fehlt oder ist ungültig.")
+
+    if not key or not isinstance(key, str):
+        st.error("Supabase KEY ist ungültig oder fehlt.")
+        raise ValueError("Supabase KEY fehlt oder ist ungültig.")
+
+    # Supabase Client erzeugen
     return create_client(url, key)
-
-# ---------------------------------------------------
-# BELEGE LADEN
-# ---------------------------------------------------
-def get_belege_df(supabase):
-    data = supabase.table("belege").select("*").order("datum").execute().data
-    df = pd.DataFrame(data)
-
-    for col in ["typ", "stunden", "pdf_url"]:
-        if col not in df.columns:
-            df[col] = None
-
-    return df
-
-# ---------------------------------------------------
-# POSITIONEN LADEN
-# ---------------------------------------------------
-def get_positionen_df(supabase):
-    data = supabase.table("positionen").select("*").execute().data
-    df = pd.DataFrame(data)
-
-    for col in ["leistung", "menge", "preis", "gesamt"]:
-        if col not in df.columns:
-            df[col] = None
-
-    return df
-
-# ---------------------------------------------------
-# PDF HOCHLADEN
-# ---------------------------------------------------
-def upload_pdf_to_supabase(supabase, pdf_bytes, filename):
-    path = f"pdfs/{filename}"
-    supabase.storage.from_("pdfs").upload(path, pdf_bytes, {"content-type": "application/pdf"})
-    url = supabase.storage.from_("pdfs").get_public_url(path)
-    return url
