@@ -1,63 +1,28 @@
 import streamlit as st
-import json
-import os
-from utils.supabase_utils import supabase
+from utils.supabase_utils import get_supabase
 
-LOCAL_FILE = "offline_cache.json"
+# ---------------------------------------------------
+# Supabase Client erzeugen (erst wenn Streamlit läuft)
+# ---------------------------------------------------
+supabase = get_supabase()
 
-# -----------------------------
-# OFFLINE-CACHE LADEN
-# -----------------------------
-def load_cache():
-    if not os.path.exists(LOCAL_FILE):
-        return {"pending": []}
-    try:
-        with open(LOCAL_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"pending": []}
-
-# -----------------------------
-# OFFLINE-CACHE SPEICHERN
-# -----------------------------
-def save_cache(cache):
-    with open(LOCAL_FILE, "w") as f:
-        json.dump(cache, f, indent=4)
-
-# -----------------------------
-# EINTRAG SPEICHERN (ONLINE ODER OFFLINE)
-# -----------------------------
-def safe_insert(table, data):
-    try:
-        # Online speichern
-        supabase.table(table).insert(data).execute()
-        return True
-    except:
-        # Offline speichern
-        cache = load_cache()
-        cache["pending"].append({"table": table, "data": data})
-        save_cache(cache)
-        return False
-
-# -----------------------------
-# SYNC AUSFÜHREN
-# -----------------------------
+# ---------------------------------------------------
+# Offline gespeicherte Einträge synchronisieren
+# ---------------------------------------------------
 def sync_pending():
-    cache = load_cache()
-    if len(cache["pending"]) == 0:
+    # Falls keine Offline-Daten existieren → nichts tun
+    if "offline_entries" not in st.session_state:
         return 0
 
-    synced = 0
-    remaining = []
+    entries = st.session_state["offline_entries"]
+    if not entries:
+        return 0
 
-    for entry in cache["pending"]:
-        try:
-            supabase.table(entry["table"]).insert(entry["data"]).execute()
-            synced += 1
-        except:
-            remaining.append(entry)
+    # Einträge hochladen
+    for entry in entries:
+        supabase.table("belege").insert(entry).execute()
 
-    cache["pending"] = remaining
-    save_cache(cache)
+    # Offline-Daten löschen
+    st.session_state["offline_entries"] = []
 
-    return synced
+    return len(entries)
