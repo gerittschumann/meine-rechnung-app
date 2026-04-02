@@ -1,16 +1,20 @@
 import streamlit as st
+import os
 from supabase import create_client
 from utils.pdf_generator import generate_pdf
 import datetime
-from io import BytesIO
 
 # ---------------------------------------------------
-# SUPABASE INITIALISIEREN
+# SUPABASE INITIALISIEREN (RAILWAY VERSION)
 # ---------------------------------------------------
-import os
+# Railway liest ENV Variablen, NICHT secrets.toml
+url = os.environ.get("SUPABASE_URL")
+key = os.environ.get("SUPABASE_KEY")
 
-url = os.environ["SUPABASE_URL"]
-key = os.environ["SUPABASE_KEY"]
+if not url or not key:
+    st.error("Supabase ENV Variablen fehlen! Bitte in Railway setzen.")
+    st.stop()
+
 supabase = create_client(url, key)
 
 st.title("📄 Rechnung / Angebot erstellen")
@@ -32,12 +36,12 @@ def generate_next_number(dokument_typ):
     )
 
     if result.data:
-        letzte = result.data[0]["nummer"]  # z.B. RE-2024-0007
+        letzte = result.data[0]["nummer"]
         laufend = int(letzte.split("-")[2]) + 1
     else:
         laufend = 1
 
-    prefix = dokument_typ.upper()[0:2]  # RE / AN
+    prefix = dokument_typ.upper()[0:2]
     return f"{prefix}-{jahr}-{laufend:04d}"
 
 
@@ -108,10 +112,8 @@ if "pdf_bytes" in st.session_state:
     # ---------------------------------------------------
     if st.button("Dokument speichern"):
 
-        # 1. Automatische Rechnungsnummer erzeugen
         nummer = generate_next_number(dokument_typ)
 
-        # 2. PDF hochladen
         path = f"{nummer}.pdf"
 
         supabase.storage.from_("archiv").update(
@@ -120,10 +122,8 @@ if "pdf_bytes" in st.session_state:
             {"content-type": "application/pdf"}
         )
 
-        # 3. Öffentliche URL erzeugen
         public_url = supabase.storage.from_("archiv").get_public_url(path)
 
-        # 4. In Datenbank speichern
         supabase.table("dokumente").insert({
             "typ": dokument_typ,
             "nummer": nummer,
