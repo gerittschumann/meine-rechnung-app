@@ -1,36 +1,22 @@
 import streamlit as st
+from utils.supabase_utils import get_supabase
 
-# ---------------------------------------------------
-# Page Config – MUSS GANZ OBEN STEHEN
-# ---------------------------------------------------
 st.set_page_config(
     page_title="Kunden",
     page_icon="👤",
     layout="wide"
 )
 
-# ---------------------------------------------------
-# Supabase-Funktionen importieren
-# ---------------------------------------------------
-from utils.supabase_utils import get_supabase
-
-# ---------------------------------------------------
-# Supabase Client erzeugen
-# ---------------------------------------------------
 supabase = get_supabase()
 
-# ---------------------------------------------------
-# UI
-# ---------------------------------------------------
 st.title("👤 Kundenverwaltung")
-st.write("Hier kannst du Kunden hinzufügen, anzeigen und löschen.")
 
 # ---------------------------------------------------
 # Kunden laden
 # ---------------------------------------------------
 def load_kunden():
     try:
-        data = supabase.table("kunden").select("*").execute().data
+        data = supabase.table("kunden").select("*").order("id").execute().data
         return data if data else []
     except Exception as e:
         st.error(f"Fehler beim Laden der Kunden: {e}")
@@ -77,18 +63,27 @@ if not kunden:
 else:
     for k in kunden:
         with st.container():
-            st.write(f"**{k['name']}**")
+            st.write(f"### {k['name']}")
             st.write(f"📍 {k.get('adresse', '-')}")
             st.write(f"📧 {k.get('email', '-')}")
             st.write(f"📞 {k.get('telefon', '-')}")
-            
-            # Löschen-Button
-            if st.button(f"Kunde löschen", key=f"del_{k['id']}"):
-                try:
-                    supabase.table("kunden").delete().eq("id", k["id"]).execute()
-                    st.success("Kunde gelöscht.")
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Fehler beim Löschen: {e}")
 
-            st.markdown("---")
+            col1, col2 = st.columns(2)
+
+            # ---------------------------------------------------
+            # Bearbeiten
+            # ---------------------------------------------------
+            with col1:
+                if st.button("✏️ Bearbeiten", key=f"edit_{k['id']}"):
+                    st.session_state["edit_id"] = k["id"]
+
+            # ---------------------------------------------------
+            # Löschen
+            # ---------------------------------------------------
+            with col2:
+                if st.button("🗑️ Löschen", key=f"del_{k['id']}"):
+                    try:
+                        supabase.table("kunden").delete().eq("id", k["id"]).execute()
+                        st.success("Kunde gelöscht.")
+                        st.experimental_rerun()
+                    except Exception as e:
