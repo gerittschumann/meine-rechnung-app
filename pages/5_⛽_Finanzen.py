@@ -1,74 +1,109 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-from utils.supabase_utils import supabase
-from utils.offline_utils import safe_insert
+import datetime
+from utils.supabase_utils import get_supabase
 
-st.title("⛽ Ausgaben & Einnahmen")
+st.set_page_config(
+    page_title="Finanzen",
+    page_icon="⛽",
+    layout="wide"
+)
 
-def load_fin():
-    data = supabase.table("finanzen").select("*").order("datum", desc=True).execute().data
-    df = pd.DataFrame(data)
+supabase = get_supabase()
 
-    if df.empty:
-        df = pd.DataFrame(columns=["id", "datum", "typ", "kategorie", "referenz", "betrag"])
+st.title("⛽ Finanzen – Einnahmen & Ausgaben")
 
-    for col in ["id", "datum", "typ", "kategorie", "referenz", "betrag"]:
-        if col not in df.columns:
-            df[col] = None
+# ---------------------------------------------------
+# Daten laden
+# ---------------------------------------------------
+def load_finanzen():
+    return supabase.table("finanzen").select("*").order("datum", desc=True).execute().data
 
-    return df
+finanzen = load_finanzen()
 
-fin_df = load_fin()
+# ---------------------------------------------------
+# Neue Buchung
+# ---------------------------------------------------
+st.subheader("➕ Neue Buchung")
 
-st.subheader("Neuen Eintrag hinzufügen")
+with st.form("fin_form"):
+    typ = st.selectbox("Art", ["Einnahme", "Ausgabe"])
+    betrag = st.number_input("Betrag (€)", min_value=0.0, step=0.50)
+    beschreibung = st.text_input("Beschreibung")
+    datum = st.date_input("Datum", datetime.date.today())
+
+    submit = st.form_submit_button("Speichern")
+
+if submit:
+    supabase.table("finanzen").insert({
+        "typ": typ.lower(),
+        "betrag": betrag,
+        "beschreibung": beschreibung,
+        "datum": datum.isoformat()
+    }).execute()
+
+    st.success("Buchung gespeichert.")
+    st.experimental_rerun()
+
+# ---------------------------------------------------
+# Auswertung
+# ---------------------------------------------------
+st.subheader("📊 Auswertung")
+
+heute = datetime.date.today()
+monat_start = heute.replace(day=1)
+jahr_start = heute.replace(month=1, day=1)
+
+monat_einnahmen = 0
+monat_ausgaben = 0
+jahr_einnahmen = 0
+jahr_ausgaben = 0
+
+for f in finanzen:
+    d = datetime.date.fromisoformat(f["datum"])
+    if d >= monat_start:
+        if f["typ"] == "einnahme":
+            monat_einnahmen += f["betrag"]
+        else:
+            monat_ausgaben += f["betrag"]
+
+    if d >= jahr_start:
+        if f["typ"] == "einnahme":
+            jahr_einnahmen += f["betrag"]
+        else:
+            jahr_ausgaben += f["betrag"]
 
 col1, col2 = st.columns(2)
 
 with col1:
-    datum = st.date_input("Datum", datetime.now())
-    typ = st.selectbox("Typ", ["Ausgabe", "Einnahme"])
-    kategorie = st.text_input("Kategorie (z.B. Diesel, Werkzeug, Material, Sonstiges)")
+    st.markdown("### 📅 Monat")
+    st.write(f"**Einnahmen:** {monat_einnahmen:.2f} €")
+    st.write(f"**Ausgaben:** {monat_ausgaben:.2f} €")
+    st.write(f"**Ergebnis:** {(monat_einnahmen - monat_ausgaben):.2f} €")
 
 with col2:
-    referenz = st.text_input("Beschreibung / Referenz")
-    betrag = st.number_input("Betrag (€)", min_value=0.0, step=0.10)
+    st.markdown("### 📆 Jahr")
+    st.write(f"**Einnahmen:** {jahr_einnahmen:.2f} €")
+    st.write(f"**Ausgaben:** {jahr_ausgaben:.2f} €")
+    st.write(f"**Ergebnis:** {(jahr_einnahmen - jahr_ausgaben):.2f} €")
 
-if st.button("💾 Eintrag speichern"):
-    if kategorie.strip() == "":
-        st.error("Bitte eine Kategorie eingeben.")
-        st.stop()
+# ---------------------------------------------------
+# Tabelle aller Buchungen
+# ---------------------------------------------------
+st.subheader("📋 Alle Buchungen")
 
-    safe_insert("finanzen", {
-        "datum": datum.isoformat(),
-        "typ": typ,
-        "kategorie": kategorie,
-        "referenz": referenz,
-        "betrag": betrag
-    })
-
-    st.success("Eintrag gespeichert (online oder offline)!")
-    st.rerun()
-
-st.subheader("Letzte Einträge")
-
-if fin_df.empty:
-    st.info("Noch keine Finanzdaten vorhanden.")
+if not finanzen:
+    st.info("Noch keine Einträge vorhanden.")
 else:
-    fin_df["datum"] = pd.to_datetime(fin_df["datum"], errors="coerce")
-    st.dataframe(fin_df)
+    for f in finanzen:
+        with st.container():
+            farbe = "green" if f["typ"] == "einnahme" else "red"
+            st.markdown(f"### <span style='color:{farbe}'>{f['typ'].capitalize()}</span>", unsafe_allow_html=True)
+            st.write(f"💰 Betrag: **{f['betrag']:.2f} €**")
+            st.write(f"📝 {f.get('beschreibung', '-')}")
+            st.write(f"📅 {f['datum']}")
 
-st.subheader("Eintrag löschen")
+            if st.button("🗑️ Löschen", key=f"del_{f['id']}"):
+                supabase.table("finanzen").delete().eq("id", f["id"]).execute()
+                st.experimental_rerun()
 
-if fin_df.empty:
-    st.info("Keine Einträge zum Löschen vorhanden.")
-else:
-    ids = fin_df["id"].tolist()
-    labels = [f"{row['datum']} – {row['typ']} – {row['betrag']}€" for _, row in fin_df.iterrows()]
-
-    auswahl = st.selectbox("Eintrag auswählen", options=list(zip(ids, labels)), format_func=lambda x: x[1])
-
-    if st.button("🗑️ Eintrag löschen"):
-        supabase.table("finanzen").delete().eq("id", auswahl[0]).execute()
-        st.warning("Eintrag gelöscht!")
-        st.rerun()
+            st.markdown("---")
