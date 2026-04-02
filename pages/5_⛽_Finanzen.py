@@ -1,130 +1,94 @@
 import streamlit as st
-import datetime
-from utils.supabase_utils import get_supabase
+from utils.db import get_connection
+import pandas as pd
 
 st.set_page_config(
-    page_title="Finanzen",
-    page_icon="⛽",
+    page_title="💰 Finanzen",
+    page_icon="💰",
     layout="wide"
 )
 
-supabase = get_supabase()
-
-st.title("⛽ Finanzen – Einnahmen & Ausgaben")
+st.title("💰 Finanzübersicht")
 
 # ---------------------------------------------------
-# Daten laden
+# DATEN LADEN
 # ---------------------------------------------------
-def load_finanzen():
-    try:
-        data = supabase.table("finanzen").select("*").order("datum", desc=True).execute().data
-        return data if data else []
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Finanzen: {e}")
-        return []
+conn = get_connection()
+cur = conn.cursor()
 
-finanzen = load_finanzen()
+# Gesamtsummen
+cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'rechnung'")
+sum_rechnungen = cur.fetchone()["summe"]
 
-# ---------------------------------------------------
-# Neue Buchung
-# ---------------------------------------------------
-st.subheader("➕ Neue Buchung")
+cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'quittung'")
+sum_quittungen = cur.fetchone()["summe"]
 
-with st.form("fin_form"):
-    typ = st.selectbox("Art", ["Einnahme", "Ausgabe"])
-    betrag = st.number_input("Betrag (€)", min_value=0.0, step=0.50)
-    beschreibung = st.text_input("Beschreibung")
-    datum = st.date_input("Datum", datetime.date.today())
+cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'angebot'")
+sum_angebote = cur.fetchone()["summe"]
 
-    submit = st.form_submit_button("Speichern")
+# Monatsübersicht
+cur.execute("""
+    SELECT 
+        strftime('%Y-%m', erstellt_am) AS monat,
+        SUM(CASE WHEN typ = 'rechnung' THEN summe ELSE 0 END) AS rechnungen,
+        SUM(CASE WHEN typ = 'quittung' THEN summe ELSE 0 END) AS quittungen,
+        SUM(CASE WHEN typ = 'angebot' THEN summe ELSE 0 END) AS angebote
+    FROM dokumente
+    GROUP BY monat
+    ORDER BY monat DESC
+""")
+monatsdaten = cur.fetchall()
 
-if submit:
-    try:
-        supabase.table("finanzen").insert({
-            "typ": typ.lower(),
-            "betrag": betrag,
-            "beschreibung": beschreibung,
-            "datum": datum.isoformat()
-        }).execute()
+# Gesamte Dokumentliste
+cur.execute("""
+    SELECT id, typ, nummer, kunde_id, summe, erstellt_am
+    FROM dokumente
+    ORDER BY erstellt_am DESC
+""")
+dokumente = cur.fetchall()
 
-        st.success("Buchung gespeichert.")
-        st.experimental_rerun()
-
-    except Exception as e:
-        st.error(f"Fehler beim Speichern: {e}")
+conn.close()
 
 # ---------------------------------------------------
-# Auswertung
+# KENNZAHLEN
 # ---------------------------------------------------
-st.subheader("📊 Auswertung")
-
-heute = datetime.date.today()
-monat_start = heute.replace(day=1)
-jahr_start = heute.replace(month=1, day=1)
-
-monat_einnahmen = 0
-monat_ausgaben = 0
-jahr_einnahmen = 0
-jahr_ausgaben = 0
-
-for f in finanzen:
-    try:
-        d = datetime.date.fromisoformat(f["datum"])
-    except:
-        continue
-
-    if d >= monat_start:
-        if f["typ"] == "einnahme":
-            monat_einnahmen += f["betrag"]
-        else:
-            monat_ausgaben += f["betrag"]
-
-    if d >= jahr_start:
-        if f["typ"] == "einnahme":
-            jahr_einnahmen += f["betrag"]
-        else:
-            jahr_ausgaben += f["betrag"]
-
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown("### 📅 Monat")
-    st.write(f"**Einnahmen:** {monat_einnahmen:.2f} €")
-    st.write(f"**Ausgaben:** {monat_ausgaben:.2f} €")
-    st.write(f"**Ergebnis:** {(monat_einnahmen - monat_ausgaben):.2f} €")
+    st.metric("📑 Rechnungen – Einnahmen", f"{sum_rechnungen:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
 with col2:
-    st.markdown("### 📆 Jahr")
-    st.write(f"**Einnahmen:** {jahr_einnahmen:.2f} €")
-    st.write(f"**Ausgaben:** {jahr_ausgaben:.2f} €")
-    st.write(f"**Ergebnis:** {(jahr_einnahmen - jahr_ausgaben):.2f} €")
+    st.metric("🧾 Quittungen – Einnahmen", f"{sum_quittungen:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+with col3:
+    st.metric("📃 Angebote – Gesamtwert", f"{sum_angebote:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+st.write("---")
 
 # ---------------------------------------------------
-# Tabelle aller Buchungen
+# MONATSÜBERSICHT
 # ---------------------------------------------------
-st.subheader("📋 Alle Buchungen")
+st.subheader("📅 Monatsübersicht")
 
-if not finanzen:
-    st.info("Noch keine Einträge vorhanden.")
+if not monatsdaten:
+    st.info("Noch keine Daten vorhanden.")
 else:
-    for f in finanzen:
-        farbe = "green" if f["typ"] == "einnahme" else "red"
+    df_monate = pd.DataFrame(monatsdaten)
+    df_monate.columns = ["Monat", "Rechnungen (€)", "Quittungen (€)", "Angebote (€)"]
 
-        st.markdown(
-            f"### <span style='color:{farbe}'>{f['typ'].capitalize()}</span>",
-            unsafe_allow_html=True
-        )
+    st.dataframe(df_monate, use_container_width=True)
 
-        st.write(f"💰 Betrag: **{f['betrag']:.2f} €**")
-        st.write(f"📝 {f.get('beschreibung', '-')}")
-        st.write(f"📅 {f['datum']}")
+st.write("---")
 
-        if st.button("🗑️ Löschen", key=f"del_{f['id']}"):
-            try:
-                supabase.table("finanzen").delete().eq("id", f["id"]).execute()
-                st.success("Eintrag gelöscht.")
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Fehler beim Löschen: {e}")
+# ---------------------------------------------------
+# DOKUMENTLISTE
+# ---------------------------------------------------
+st.subheader("📄 Alle Dokumente")
 
-        st.markdown("---")
+if not dokumente:
+    st.info("Noch keine Dokumente vorhanden.")
+else:
+    df_docs = pd.DataFrame(dokumente)
+    df_docs.columns = ["ID", "Typ", "Nummer", "Kunden-ID", "Summe (€)", "Erstellt am"]
+
+    st.dataframe(df_docs, use_container_width=True)
