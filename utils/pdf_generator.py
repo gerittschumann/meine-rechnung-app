@@ -23,19 +23,17 @@ class PDF(FPDF):
     def footer(self):
         self.set_y(-25)
         self.set_font("Helvetica", "", 9)
-
         footer_text = (
             f"Kontoinhaber: {self.kontoinhaber}\n"
             f"IBAN: {self.iban}   BIC: {self.bic}"
         )
-
         self.multi_cell(0, 5, footer_text, align="C")
 
 def generate_pdf(dokument, positionen, einstellungen):
     pdf = PDF()
     pdf.set_auto_page_break(auto=True, margin=20)
 
-    # Einstellungen in PDF speichern
+    # Einstellungen
     pdf.firmenname = einstellungen.get("firmenname", "")
     pdf.adresse = einstellungen.get("adresse", "")
     pdf.telefon = einstellungen.get("telefon", "")
@@ -55,7 +53,7 @@ def generate_pdf(dokument, positionen, einstellungen):
 
     pdf.add_page()
 
-    # Dokumentkopf
+    # Kopfbereich
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, dokument["typ"].upper(), ln=True)
 
@@ -65,7 +63,7 @@ def generate_pdf(dokument, positionen, einstellungen):
     pdf.cell(0, 8, f"Steuernummer: {pdf.steuernummer}", ln=True)
     pdf.ln(5)
 
-    # Positionen-Tabelle
+    # Positionen
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(100, 8, "Beschreibung")
     pdf.cell(30, 8, "Menge", align="R")
@@ -78,15 +76,15 @@ def generate_pdf(dokument, positionen, einstellungen):
     for pos in positionen:
         pdf.cell(100, 8, pos["beschreibung"])
         pdf.cell(30, 8, str(pos["menge"]), align="R")
-        pdf.cell(30, 8, f"{pos['preis']:.2f} €", align="R")
-        pdf.cell(30, 8, f"{pos['gesamt']:.2f} €", align="R", ln=True)
+        pdf.cell(30, 8, f"{pos['preis']:.2f} EUR", align="R")
+        pdf.cell(30, 8, f"{pos['gesamt']:.2f} EUR", align="R", ln=True)
         summe += pos["gesamt"]
 
     pdf.ln(5)
 
     # Gesamtsumme
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, f"Gesamtsumme: {summe:.2f} €", ln=True)
+    pdf.cell(0, 10, f"Gesamtsumme: {summe:.2f} EUR", ln=True)
 
     # Kleinunternehmer-Hinweis
     pdf.set_font("Helvetica", "", 10)
@@ -103,5 +101,4 @@ def generate_pdf(dokument, positionen, einstellungen):
     elif dokument["typ"] == "quittung":
         pdf.multi_cell(0, 6, pdf.text_quittung)
 
-    # PDF zurückgeben
     return pdf.output(dest="S").encode("latin-1")
