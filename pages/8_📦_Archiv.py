@@ -1,58 +1,113 @@
 import streamlit as st
+from utils.db import get_connection
+from pathlib import Path
 import pandas as pd
-from utils.supabase_utils import get_supabase, get_belege_df
 
 st.set_page_config(
-    page_title="Archiv",
+    page_title="📦 Archiv",
     page_icon="📦",
     layout="wide"
 )
 
-st.title("📦 Archiv – Alle Dokumente")
+st.title("📦 Archiv – Alle gespeicherten Dokumente")
 
 # ---------------------------------------------------
-# Supabase Client
+# ARCHIV-PFAD (Railway Persistent Volume)
 # ---------------------------------------------------
-supabase = get_supabase()
-
-# ---------------------------------------------------
-# Belege laden
-# ---------------------------------------------------
-df = get_belege_df(supabase)
-
-if df.empty:
-    st.info("Noch keine Dokumente vorhanden.")
-    st.stop()
+ARCHIV_DIR = Path("/mnt/data/archiv")
+ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------
-# Daten vorbereiten
+# DATEN LADEN
 # ---------------------------------------------------
-df["datum"] = pd.to_datetime(df["erstellt_am"], errors="coerce")
-df = df.sort_values("datum", ascending=False)
+conn = get_connection()
+cur = conn.cursor()
 
-df["datum"] = df["datum"].dt.strftime("%d.%m.%Y")
+cur.execute("""
+    SELECT 
+        id,
+        typ,
+        nummer,
+        kunde_id,
+        summe,
+        pdf_path,
+        erstellt_am
+    FROM dokumente
+    ORDER BY erstellt_am DESC
+""")
+dokumente = cur.fetchall()
+
+conn.close()
 
 # ---------------------------------------------------
-# Tabelle anzeigen
+# FILTER
 # ---------------------------------------------------
-st.subheader("📄 Alle Dokumente")
+st.subheader("🔍 Filter")
 
-df_show = df[["nummer", "typ", "summe", "datum", "pdf_url"]]
+col1, col2, col3 = st.columns(3)
 
-st.dataframe(df_show, use_container_width=True)
+with col1:
+    typ_filter = st.selectbox("Dokumenttyp", ["Alle", "rechnung", "angebot", "quittung"])
+
+with col2:
+    jahr_filter = st.selectbox(
+        "Jahr",
+        ["Alle"] + sorted(list({d["erstellt_am"][:4] for d in dokumente}))
+    )
+
+with col3:
+    kunde_filter = st.text_input("Kunden-ID (optional)")
 
 # ---------------------------------------------------
-# PDF Links
+# DATEN AUFBEREITEN
 # ---------------------------------------------------
-st.subheader("📥 PDF Links")
+if not dokumente:
+    st.info("Noch keine Dokumente gespeichert.")
+else:
+    df = pd.DataFrame(dokumente)
+    df.columns = ["ID", "Typ", "Nummer", "Kunden-ID", "Summe (€)", "PDF-Pfad", "Erstellt am"]
 
-for _, row in df_show.iterrows():
-    icon = "📄" if row["typ"] == "rechnung" else "📑" if row["typ"] == "angebot" else "🧾"
-    st.markdown(f"### {icon} {row['nummer']}")
-    st.write(f"💰 Summe: {row['summe']:.2f} €")
-    st.write(f"📅 Datum: {row['datum']}")
+    # Filter anwenden
+    if typ_filter != "Alle":
+        df = df[df["Typ"] == typ_filter]
 
-    if row["pdf_url"]:
-        st.markdown(f"[PDF öffnen]({row['pdf_url']})")
+    if jahr_filter != "Alle":
+        df = df[df["Erstellt am"].str.startswith(jahr_filter)]
 
-    st.markdown("---")
+    if kunde_filter.strip() != "":
+        df = df[df["Kunden-ID"].astype(str) == kunde_filter.strip()]
+
+    st.dataframe(df, use_container_width=True)
+
+    st.write("---")
+
+    # ---------------------------------------------------
+    # PDF DOWNLOAD
+    # ---------------------------------------------------
+    st.subheader("📄 PDF herunterladen")
+
+    if len(df) == 0:
+        st.info("Keine Dokumente für den aktuellen Filter gefunden.")
+    else:
+        # Auswahl
+        auswahl = st.selectbox(
+            "Dokument auswählen",
+            df["Nummer"].tolist()
+        )
+
+        # Pfad ermitteln
+        row = df[df["Nummer"] == auswahl].iloc[0]
+        pdf_path = Path(row["PDF-Pfad"])
+
+        if not pdf_path.exists():
+            st.error("PDF-Datei wurde nicht gefunden.")
+        else:
+            with open(pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+
+            st.download_button(
+                label=f"📥 PDF herunterladen ({auswahl})",
+                data=pdf_bytes,
+                file_name=f"{auswahl}.pdf",
+                mime="application/pdf"
+            )
