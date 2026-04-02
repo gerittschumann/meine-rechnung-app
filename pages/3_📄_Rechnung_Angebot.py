@@ -1,68 +1,88 @@
 import streamlit as st
 
-# ---------------------------------------------------
-# Page Config – MUSS GANZ OBEN STEHEN
-# ---------------------------------------------------
 st.set_page_config(
-    page_title="Rechnungen & Angebote",
+    page_title="Rechnung & Angebot",
     page_icon="📄",
     layout="wide"
 )
 
-# ---------------------------------------------------
-# Supabase-Funktionen importieren
-# ---------------------------------------------------
-from utils.supabase_utils import (
-    get_supabase,
-    get_belege_df,
-    get_positionen_df,
-    upload_pdf_to_supabase
-)
+from utils.supabase_utils import get_supabase
 
-# ---------------------------------------------------
-# Supabase Client erzeugen
-# ---------------------------------------------------
 supabase = get_supabase()
 
-# ---------------------------------------------------
-# UI
-# ---------------------------------------------------
-st.title("📄 Rechnungen & Angebote")
-st.write("Hier kannst du Rechnungen und Angebote verwalten.")
-
-# Tabs für Übersicht
-tab1, tab2 = st.tabs(["📄 Rechnungen", "📝 Angebote"])
+st.title("📄 Rechnung / Angebot erstellen")
 
 # ---------------------------------------------------
-# TAB: Rechnungen
+# Kunden laden
 # ---------------------------------------------------
-with tab1:
-    st.subheader("📄 Rechnungen")
-
-    try:
-        data = supabase.table("rechnungen").select("*").execute().data
-
-        if not data:
-            st.info("Noch keine Rechnungen vorhanden.")
-        else:
-            st.dataframe(data)
-
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Rechnungen: {e}")
+kunden = supabase.table("kunden").select("*").execute().data
+kunden_namen = {k["name"]: k["id"] for k in kunden} if kunden else {}
 
 # ---------------------------------------------------
-# TAB: Angebote
+# Positionen laden
 # ---------------------------------------------------
-with tab2:
-    st.subheader("📝 Angebote")
+positionen = supabase.table("positionen").select("*").execute().data
+pos_dict = {p["bezeichnung"]: p for p in positionen} if positionen else {}
 
-    try:
-        data = supabase.table("angebote").select("*").execute().data
+# ---------------------------------------------------
+# Formular
+# ---------------------------------------------------
+st.subheader("🧾 Dokument erstellen")
 
-        if not data:
-            st.info("Noch keine Angebote vorhanden.")
-        else:
-            st.dataframe(data)
+with st.form("dokument_form"):
+    art = st.selectbox("Dokumentart", ["Rechnung", "Angebot"])
 
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Angebote: {e}")
+    kunde = st.selectbox("Kunde auswählen", list(kunden_namen.keys()))
+
+    st.markdown("### Positionen auswählen")
+
+    ausgewaehlte_pos = st.multiselect(
+        "Positionen",
+        list(pos_dict.keys())
+    )
+
+    # Dynamische Eingabe für jede Position
+    gesamt = 0
+    pos_eintraege = []
+
+    for pos_name in ausgewaehlte_pos:
+        pos = pos_dict[pos_name]
+
+        menge = st.number_input(
+            f"Menge für {pos_name}",
+            min_value=1,
+            value=1,
+            key=f"menge_{pos_name}"
+        )
+
+        gesamtpreis = menge * pos["preis"]
+        gesamt += gesamtpreis
+
+        pos_eintraege.append({
+            "position_id": pos["id"],
+            "menge": menge,
+            "einzelpreis": pos["preis"],
+            "gesamtpreis": gesamtpreis
+        })
+
+    st.markdown(f"### 💰 Gesamtsumme: **{gesamt:.2f} €**")
+
+    submitted = st.form_submit_button("Speichern")
+
+    if submitted:
+        # Dokument speichern
+        doc = supabase.table("dokumente").insert({
+            "typ": art.lower(),
+            "kunde_id": kunden_namen[kunde],
+            "summe": gesamt
+        }).execute()
+
+        doc_id = doc.data[0]["id"]
+
+        # Positionen speichern
+        for p in pos_eintraege:
+            p["dokument_id"] = doc_id
+            supabase.table("dokument_positionen").insert(p).execute()
+
+        st.success(f"{art} erfolgreich gespeichert!")
+        st.info("PDF‑Erstellung folgt im nächsten Schritt.")
