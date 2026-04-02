@@ -8,16 +8,16 @@ def generate_pdf(dokument, positionen, einstellungen):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
 
-    # Schriftart (ReportLab hat eingebaute Unicode-Fonts)
+    # Schriftart
     c.setFont("Helvetica", 12)
 
     # ---------------------------------------------------
-    # EINSTELLUNGEN
+    # EINSTELLUNGEN (SQLite-kompatibel)
     # ---------------------------------------------------
-    firma = einstellungen.get("firmenname", "")
-    strasse = einstellungen.get("strasse", "")
-    plz = einstellungen.get("plz", "")
-    ort = einstellungen.get("ort", "")
+    firma = einstellungen.get("firma_name", "")
+    adresse = einstellungen.get("firma_adresse", "")
+    plz = einstellungen.get("firma_plz", "")
+    ort = einstellungen.get("firma_ort", "")
 
     y = 800
 
@@ -29,7 +29,7 @@ def generate_pdf(dokument, positionen, einstellungen):
     y -= 10*mm
 
     c.setFont("Helvetica", 12)
-    c.drawString(20*mm, y, strasse)
+    c.drawString(20*mm, y, adresse)
     y -= 6*mm
     c.drawString(20*mm, y, f"{plz} {ort}")
     y -= 15*mm
