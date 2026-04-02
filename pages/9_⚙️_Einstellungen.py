@@ -1,12 +1,10 @@
 import streamlit as st
 from supabase import create_client, Client
 
-# Supabase Client
 supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 st.title("⚙️ Einstellungen")
 
-# Einstellungen laden
 res = supabase.table("einstellungen").select("*").execute()
 
 if res.data:
@@ -16,7 +14,6 @@ else:
     einstellungen = {}
     einstellungen_id = None
 
-# Formular
 with st.form("einstellungen_form"):
     st.subheader("Firmendaten")
     firmenname = st.text_input("Firmenname", einstellungen.get("firmenname", ""))
@@ -48,7 +45,6 @@ with st.form("einstellungen_form"):
 
     submitted = st.form_submit_button("Speichern")
 
-# Speichern
 if submitted:
     daten = {
         "firmenname": firmenname,
