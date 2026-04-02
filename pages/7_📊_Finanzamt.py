@@ -1,110 +1,73 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-from utils.supabase_utils import supabase
+import datetime
+
+from utils.supabase_utils import get_supabase, get_belege_df
+
+st.set_page_config(
+    page_title="Finanzamt",
+    page_icon="📊",
+    layout="wide"
+)
 
 st.title("📊 Finanzamt – Jahresübersicht")
 
-# -----------------------------
-# DATEN LADEN
-# -----------------------------
-def load_belege():
-    data = supabase.table("belege").select("*").execute().data
-    df = pd.DataFrame(data)
+supabase = get_supabase()
 
-    if df.empty:
-        df = pd.DataFrame(columns=["nr", "kunde", "adresse", "datum", "typ", "betrag"])
+# ---------------------------------------------------
+# Daten laden
+# ---------------------------------------------------
+df = get_belege_df(supabase)
 
-    for col in ["nr", "kunde", "adresse", "datum", "typ", "betrag"]:
-        if col not in df.columns:
-            df[col] = None
+if df.empty:
+    st.info("Noch keine Dokumente vorhanden.")
+    st.stop()
 
-    return df
+# ---------------------------------------------------
+# Daten vorbereiten
+# ---------------------------------------------------
+df["datum"] = pd.to_datetime(df["erstellt_am"], errors="coerce")
+df["jahr"] = df["datum"].dt.year
 
-def load_finanzen():
-    data = supabase.table("finanzen").select("*").execute().data
-    df = pd.DataFrame(data)
+aktuelles_jahr = datetime.date.today().year
+df_jahr = df[df["jahr"] == aktuelles_jahr]
 
-    if df.empty:
-        df = pd.DataFrame(columns=["datum", "typ", "kategorie", "betrag"])
+# ---------------------------------------------------
+# Einnahmen / Ausgaben / Gewinn
+# ---------------------------------------------------
+einnahmen = df_jahr[df_jahr["typ"] == "rechnung"]["summe"].sum()
+ausgaben = df_jahr[df_jahr["typ"] == "ausgabe"]["summe"].sum() if "ausgabe" in df_jahr["typ"].unique() else 0
+gewinn = einnahmen - ausgaben
 
-    for col in ["datum", "typ", "kategorie", "betrag"]:
-        if col not in df.columns:
-            df[col] = None
+col1, col2, col3 = st.columns(3)
 
-    return df
+with col1:
+    st.metric("💰 Einnahmen", f"{einnahmen:.2f} €")
 
-belege_df = load_belege()
-fin_df = load_finanzen()
+with col2:
+    st.metric("📉 Ausgaben", f"{ausgaben:.2f} €")
 
-# -----------------------------
-# DATEN AUFBEREITEN
-# -----------------------------
-if not belege_df.empty:
-    belege_df["datum"] = pd.to_datetime(belege_df["datum"], errors="coerce")
-    belege_df["monat"] = belege_df["datum"].dt.month
-    einnahmen = belege_df[belege_df["typ"] == "Rechnung"]
-else:
-    einnahmen = pd.DataFrame(columns=["monat", "betrag"])
+with col3:
+    st.metric("📈 Gewinn", f"{gewinn:.2f} €")
 
-if not fin_df.empty:
-    fin_df["datum"] = pd.to_datetime(fin_df["datum"], errors="coerce")
-    fin_df["monat"] = fin_df["datum"].dt.month
-    ausgaben = fin_df[fin_df["typ"] == "Ausgabe"]
-else:
-    ausgaben = pd.DataFrame(columns=["monat", "betrag"])
+# ---------------------------------------------------
+# Dokumentübersicht
+# ---------------------------------------------------
+st.subheader("📄 Dokumente des Jahres")
 
-# -----------------------------
-# MONATLICHE SUMMEN
-# -----------------------------
-monats_einnahmen = einnahmen.groupby("monat")["betrag"].sum()
-monats_ausgaben = ausgaben.groupby("monat")["betrag"].sum()
+df_show = df_jahr[["nummer", "typ", "summe", "datum", "pdf_url"]].sort_values("datum", ascending=False)
+df_show["datum"] = df_show["datum"].dt.strftime("%d.%m.%Y")
 
-# Fehlende Monate ergänzen
-for m in range(1, 13):
-    if m not in monats_einnahmen.index:
-        monats_einnahmen.loc[m] = 0
-    if m not in monats_ausgaben.index:
-        monats_ausgaben.loc[m] = 0
+st.dataframe(df_show, use_container_width=True)
 
-monats_einnahmen = monats_einnahmen.sort_index()
-monats_ausgaben = monats_ausgaben.sort_index()
+# ---------------------------------------------------
+# PDF Links anzeigen
+# ---------------------------------------------------
+st.subheader("📥 PDF Links")
 
-gewinn = monats_einnahmen - monats_ausgaben
-
-# -----------------------------
-# ANZEIGE
-# -----------------------------
-st.subheader("📅 Monatliche Einnahmen / Ausgaben / Gewinn")
-
-df_chart = pd.DataFrame({
-    "Einnahmen": monats_einnahmen,
-    "Ausgaben": monats_ausgaben,
-    "Gewinn": gewinn
-})
-
-st.line_chart(df_chart)
-
-# -----------------------------
-# JAHRESSUMMEN
-# -----------------------------
-st.subheader("📘 Jahresübersicht")
-
-jahres_einnahmen = monats_einnahmen.sum()
-jahres_ausgaben = monats_ausgaben.sum()
-jahres_gewinn = gewinn.sum()
-
-st.write(f"**Einnahmen gesamt:** {jahres_einnahmen:.2f} €")
-st.write(f"**Ausgaben gesamt:** {jahres_ausgaben:.2f} €")
-st.write(f"**Gewinn gesamt:** {jahres_gewinn:.2f} €")
-
-# -----------------------------
-# RÜCKLAGE
-# -----------------------------
-st.subheader("💰 Rücklage für Einkommensteuer")
-
-steuersatz = st.slider("Einkommensteuer-Satz (%)", 10, 45, 25)
-
-ruecklage = jahres_gewinn * (steuersatz / 100)
-
-st.write(f"**Empfohlene Rücklage:** {ruecklage:.2f} €")
+for _, row in df_show.iterrows():
+    icon = "📄" if row["typ"] == "rechnung" else "📑" if row["typ"] == "angebot" else "🧾"
+    st.markdown(f"**{icon} {row['nummer']} – {row['summe']:.2f} €**")
+    if row["pdf_url"]:
+        st.markdown(f"[PDF öffnen]({row['pdf_url']})")
+    st.markdown("---")
