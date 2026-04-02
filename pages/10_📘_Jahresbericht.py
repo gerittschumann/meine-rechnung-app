@@ -1,132 +1,100 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-from utils.supabase_utils import supabase, upload_pdf_to_supabase
-from utils.pdf_utils import PDF, load_settings
+import datetime
 
-st.title("📘 Jahresbericht – PDF erstellen")
+from utils.supabase_utils import get_supabase, get_belege_df
+from utils.pdf_utils import create_pdf, upload_pdf_to_storage, pdf_bytes_to_data_url
 
-# -----------------------------
-# DATEN LADEN
-# -----------------------------
-def load_belege():
-    data = supabase.table("belege").select("*").execute().data
-    df = pd.DataFrame(data)
-    if df.empty:
-        return pd.DataFrame(columns=["datum", "typ", "betrag"])
-    df["datum"] = pd.to_datetime(df["datum"], errors="coerce")
-    return df
+st.set_page_config(
+    page_title="Jahresbericht",
+    page_icon="📘",
+    layout="wide"
+)
 
-def load_finanzen():
-    data = supabase.table("finanzen").select("*").execute().data
-    df = pd.DataFrame(data)
-    if df.empty:
-        return pd.DataFrame(columns=["datum", "typ", "betrag"])
-    df["datum"] = pd.to_datetime(df["datum"], errors="coerce")
-    return df
+st.title("📘 Jahresbericht")
 
-def load_fahrten():
-    data = supabase.table("fahrtenbuch").select("*").execute().data
-    df = pd.DataFrame(data)
-    if df.empty:
-        return pd.DataFrame(columns=["datum", "start", "ziel", "kilometer"])
-    df["datum"] = pd.to_datetime(df["datum"], errors="coerce")
-    return df
+# ---------------------------------------------------
+# Supabase Client
+# ---------------------------------------------------
+supabase = get_supabase()
 
-belege_df = load_belege()
-fin_df = load_finanzen()
-fahrten_df = load_fahrten()
-settings = load_settings()
+# ---------------------------------------------------
+# Daten laden
+# ---------------------------------------------------
+df = get_belege_df(supabase)
 
-# -----------------------------
-# JAHR AUSWÄHLEN
-# -----------------------------
-st.subheader("Jahr auswählen")
-
-jahre = sorted(list(set(belege_df["datum"].dt.year.dropna().astype(int).tolist() +
-                        fin_df["datum"].dt.year.dropna().astype(int).tolist() +
-                        fahrten_df["datum"].dt.year.dropna().astype(int).tolist())), reverse=True)
-
-if len(jahre) == 0:
-    st.info("Noch keine Daten vorhanden.")
+if df.empty:
+    st.info("Noch keine Dokumente vorhanden.")
     st.stop()
 
-jahr = st.selectbox("Jahr", jahre)
+# ---------------------------------------------------
+# Daten vorbereiten
+# ---------------------------------------------------
+df["datum"] = pd.to_datetime(df["erstellt_am"], errors="coerce")
+df["jahr"] = df["datum"].dt.year
 
-# -----------------------------
-# DATEN FILTERN
-# -----------------------------
-einnahmen = belege_df[(belege_df["typ"] == "Rechnung") & (belege_df["datum"].dt.year == jahr)]
-ausgaben = fin_df[(fin_df["typ"] == "Ausgabe") & (fin_df["datum"].dt.year == jahr)]
-fahrten = fahrten_df[fahrten_df["datum"].dt.year == jahr]
+aktuelles_jahr = datetime.date.today().year
+df_jahr = df[df["jahr"] == aktuelles_jahr]
 
-sum_einnahmen = einnahmen["betrag"].sum()
-sum_ausgaben = ausgaben["betrag"].sum()
-sum_km = fahrten["kilometer"].astype(float).sum()
-km_pauschale = settings.get("km_pauschale", 0.30)
-km_betrag = sum_km * km_pauschale
-gewinn = sum_einnahmen - sum_ausgaben - km_betrag
+# ---------------------------------------------------
+# Einnahmen / Ausgaben / Gewinn
+# ---------------------------------------------------
+einnahmen = df_jahr[df_jahr["typ"] == "rechnung"]["summe"].sum()
+ausgaben = df_jahr[df_jahr["typ"] == "ausgabe"]["summe"].sum() if "ausgabe" in df_jahr["typ"].unique() else 0
+gewinn = einnahmen - ausgaben
 
-# -----------------------------
-# PDF ERSTELLEN
-# -----------------------------
-if st.button("📄 Jahresbericht als PDF erstellen"):
+col1, col2, col3 = st.columns(3)
 
-    pdf = PDF()
-    pdf.date = datetime.now().strftime("%d.%m.%Y")
-    pdf.add_page()
+with col1:
+    st.metric("💰 Einnahmen", f"{einnahmen:.2f} €")
 
-    # Titel
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Jahresbericht {jahr}", ln=True)
+with col2:
+    st.metric("📉 Ausgaben", f"{ausgaben:.2f} €")
 
-    pdf.ln(5)
-    pdf.set_font("Arial", "", 12)
+with col3:
+    st.metric("📈 Gewinn", f"{gewinn:.2f} €")
 
-    # Kennzahlen
-    pdf.cell(0, 8, f"Einnahmen gesamt: {sum_einnahmen:.2f} €", ln=True)
-    pdf.cell(0, 8, f"Ausgaben gesamt: {sum_ausgaben:.2f} €", ln=True)
-    pdf.cell(0, 8, f"Gefahrene Kilometer: {sum_km:.1f} km", ln=True)
-    pdf.cell(0, 8, f"Kilometerpauschale ({km_pauschale:.2f} €): {km_betrag:.2f} €", ln=True)
-    pdf.cell(0, 8, f"Gewinn nach Pauschalen: {gewinn:.2f} €", ln=True)
+# ---------------------------------------------------
+# Jahresbericht PDF erzeugen
+# ---------------------------------------------------
+st.subheader("📄 Jahresbericht als PDF")
 
-    pdf.ln(10)
+if st.button("PDF erzeugen"):
+    try:
+        # PDF erstellen
+        pdf_bytes = create_pdf(
+            title=f"Jahresbericht {aktuelles_jahr}",
+            nummer=f"J-{aktuelles_jahr}",
+            kunde={"name": "Interner Bericht"},
+            positionen=[],
+            summe=einnahmen,
+            unterschrift_bytes=None
+        )
 
-    # Einnahmen Tabelle
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "Einnahmen", ln=True)
-    pdf.set_font("Arial", "", 12)
+        # PDF hochladen
+        bucket = "pdfs"
+        path = f"jahresberichte/J-{aktuelles_jahr}.pdf"
+        pdf_url = upload_pdf_to_storage(supabase, pdf_bytes, bucket, path)
 
-    for _, row in einnahmen.iterrows():
-        pdf.cell(0, 8, f"{row['datum'].strftime('%d.%m.%Y')} – {row['betrag']:.2f} €", ln=True)
+        st.success("PDF erfolgreich erstellt.")
+        st.markdown(f"[📄 PDF öffnen]({pdf_url})")
 
-    pdf.ln(10)
+        # Vorschau
+        data_url = pdf_bytes_to_data_url(pdf_bytes)
+        st.components.v1.html(
+            f"<iframe src='{data_url}' width='100%' height='600px' style='border:none;'></iframe>",
+            height=620
+        )
 
-    # Ausgaben Tabelle
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "Ausgaben", ln=True)
-    pdf.set_font("Arial", "", 12)
+    except Exception as e:
+        st.error(f"Fehler beim Erstellen des PDFs: {e}")
 
-    for _, row in ausgaben.iterrows():
-        pdf.cell(0, 8, f"{row['datum'].strftime('%d.%m.%Y')} – {row['betrag']:.2f} €", ln=True)
+# ---------------------------------------------------
+# Dokumentliste
+# ---------------------------------------------------
+st.subheader("📋 Dokumente des Jahres")
 
-    pdf.ln(10)
+df_show = df_jahr[["nummer", "typ", "summe", "datum", "pdf_url"]].sort_values("datum", ascending=False)
+df_show["datum"] = df_show["datum"].dt.strftime("%d.%m.%Y")
 
-    # Fahrten Tabelle
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "Fahrten", ln=True)
-    pdf.set_font("Arial", "", 12)
-
-    for _, row in fahrten.iterrows():
-        pdf.cell(0, 8, f"{row['datum'].strftime('%d.%m.%Y')} – {row['start']} → {row['ziel']} – {row['kilometer']} km", ln=True)
-
-    # PDF erzeugen
-    pdf_bytes = pdf.output(dest="S").encode("latin1")
-
-    # Hochladen
-    filename = f"Jahresbericht-{jahr}.pdf"
-    pdf_url = upload_pdf_to_supabase(pdf_bytes, filename)
-
-    st.success("Jahresbericht erstellt!")
-    st.write("Download-Link:")
-    st.write(pdf_url)
+st.dataframe(df_show, use_container_width=True)
