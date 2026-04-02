@@ -1,89 +1,145 @@
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from io import BytesIO
+from fpdf import FPDF
 import datetime
+import base64
+from utils.db import get_connection
 
-def generate_pdf(dokument, positionen, einstellungen):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
 
-    # Schriftart
-    c.setFont("Helvetica", 12)
+# ---------------------------------------------------
+# PDF GENERATOR – EINHEITLICH FÜR ALLE DOKUMENTE
+# ---------------------------------------------------
+def generate_pdf(daten, positionen, extra):
+    """
+    daten = {
+        typ: rechnung / angebot / quittung
+        nummer: Dokumentnummer
+        kunde: Kundendaten (dict)
+        rechnung: Rechnungsdaten (nur bei Quittung)
+        signatur: PNG (nur bei Quittung)
+        preview: True/False
+    }
+    """
 
-    # ---------------------------------------------------
-    # EINSTELLUNGEN (SQLite-kompatibel)
-    # ---------------------------------------------------
-    firma = einstellungen.get("firma_name", "")
-    adresse = einstellungen.get("firma_adresse", "")
-    plz = einstellungen.get("firma_plz", "")
-    ort = einstellungen.get("firma_ort", "")
-
-    y = 800
-
-    # ---------------------------------------------------
-    # HEADER
-    # ---------------------------------------------------
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(20*mm, y, firma)
-    y -= 10*mm
-
-    c.setFont("Helvetica", 12)
-    c.drawString(20*mm, y, adresse)
-    y -= 6*mm
-    c.drawString(20*mm, y, f"{plz} {ort}")
-    y -= 15*mm
+    typ = daten.get("typ")
+    nummer = daten.get("nummer")
+    kunde = daten.get("kunde")
+    rechnung = daten.get("rechnung")
+    signatur = daten.get("signatur")
+    preview = daten.get("preview", False)
 
     # ---------------------------------------------------
-    # DOKUMENTDATEN
+    # EINSTELLUNGEN LADEN
     # ---------------------------------------------------
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(20*mm, y, f"{dokument['typ'].capitalize()} {dokument['nummer']}")
-    y -= 10*mm
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM einstellungen WHERE id = 1")
+    ein = cur.fetchone()
+    conn.close()
 
-    c.setFont("Helvetica", 12)
-    datum = datetime.datetime.now().strftime("%d.%m.%Y")
-    c.drawString(20*mm, y, f"Datum: {datum}")
-    y -= 15*mm
+    firma = ein["firma_name"]
+    adresse = ein["firma_adresse"]
+    plz = ein["firma_plz"]
+    ort = ein["firma_ort"]
+    steuernummer = ein["steuernummer"]
+    iban = ein["iban"]
+    bic = ein["bic"]
+
+    text_rechnung = ein.get("text_rechnung", "")
+    text_angebot = ein.get("text_angebot", "")
+    text_quittung = ein.get("text_quittung", "")
+
+    # ---------------------------------------------------
+    # PDF START
+    # ---------------------------------------------------
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # ---------------------------------------------------
+    # KOPF
+    # ---------------------------------------------------
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, firma, ln=True)
+
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 6, adresse, ln=True)
+    pdf.cell(0, 6, f"{plz} {ort}", ln=True)
+    pdf.ln(5)
+
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, typ.upper(), ln=True)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, f"Nummer: {nummer}", ln=True)
+    pdf.cell(0, 8, f"Datum: {datetime.date.today().strftime('%d.%m.%Y')}", ln=True)
+    pdf.ln(5)
+
+    # ---------------------------------------------------
+    # KUNDENDATEN
+    # ---------------------------------------------------
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Kunde:", ln=True)
+
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 6, kunde["name"], ln=True)
+    pdf.cell(0, 6, kunde["adresse"], ln=True)
+    pdf.cell(0, 6, f"{kunde['plz']} {kunde['ort']}", ln=True)
+    pdf.ln(5)
 
     # ---------------------------------------------------
     # POSITIONEN
     # ---------------------------------------------------
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(20*mm, y, "Beschreibung")
-    c.drawString(110*mm, y, "Menge")
-    c.drawString(130*mm, y, "Preis")
-    c.drawString(160*mm, y, "Gesamt")
-    y -= 8*mm
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Positionen:", ln=True)
 
-    c.setFont("Helvetica", 12)
-
-    gesamt_summe = 0
+    pdf.set_font("Arial", "", 12)
 
     for pos in positionen:
-        c.drawString(20*mm, y, pos["beschreibung"])
-        c.drawString(110*mm, y, str(pos["menge"]))
-        c.drawString(130*mm, y, f"{pos['preis']:.2f} €")
-        c.drawString(160*mm, y, f"{pos['gesamt']:.2f} €")
-        y -= 8*mm
+        pdf.cell(0, 6, f"- {pos['beschreibung']} ({pos['menge']} x {pos['preis']} €)", ln=True)
 
-        gesamt_summe += pos["gesamt"]
-
-    y -= 10*mm
+    pdf.ln(5)
 
     # ---------------------------------------------------
     # SUMME
     # ---------------------------------------------------
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(20*mm, y, f"Gesamtbetrag: {gesamt_summe:.2f} €")
+    summe = sum([p["gesamt"] for p in positionen])
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, f"Gesamtsumme: {summe:.2f} €", ln=True)
+    pdf.ln(10)
 
     # ---------------------------------------------------
-    # PDF ABSCHLIESSEN
+    # DOKUMENTTEXT JE NACH TYP
     # ---------------------------------------------------
-    c.showPage()
-    c.save()
+    pdf.set_font("Arial", "", 12)
 
-    pdf_bytes = buffer.getvalue()
-    buffer.close()
+    if typ == "rechnung":
+        pdf.multi_cell(0, 6, text_rechnung)
 
-    return pdf_bytes
+    elif typ == "angebot":
+        pdf.multi_cell(0, 6, text_angebot)
+
+    elif typ == "quittung":
+        pdf.multi_cell(0, 6, text_quittung)
+        pdf.ln(10)
+
+        # ---------------------------------------------------
+        # SIGNATUR EINBINDEN
+        # ---------------------------------------------------
+        if signatur is not None:
+            try:
+                pdf.image(signatur, x=10, w=60)
+            except:
+                pass
+
+    pdf.ln(10)
+
+    # ---------------------------------------------------
+    # FIRMENDATEN UNTEN
+    # ---------------------------------------------------
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 6, f"Steuernummer: {steuernummer}", ln=True)
+    pdf.cell(0, 6, f"IBAN: {iban}", ln=True)
+    pdf.cell(0, 6, f"BIC: {bic}", ln=True)
+
+    # ---------------------------------------------------
+    # PDF ALS BYTES ZURÜCKGEBEN
+    # ---------------------------------------------------
+    return pdf.output(dest="S").encode("latin1")
