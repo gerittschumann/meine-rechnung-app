@@ -6,15 +6,21 @@ def generate_pdf(dokument, positionen, einstellungen):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
+    # Sicherstellen, dass fehlende Felder nicht crashen
+    firma = einstellungen.get("firmenname", "")
+    strasse = einstellungen.get("strasse", "")
+    plz = einstellungen.get("plz", "")
+    ort = einstellungen.get("ort", "")
+
     # ---------------------------------------------------
     # HEADER
     # ---------------------------------------------------
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, einstellungen["firmenname"], ln=True)
+    pdf.cell(0, 10, firma, ln=True)
 
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 6, einstellungen["strasse"], ln=True)
-    pdf.cell(0, 6, f"{einstellungen['plz']} {einstellungen['ort']}", ln=True)
+    pdf.cell(0, 6, strasse, ln=True)
+    pdf.cell(0, 6, f"{plz} {ort}", ln=True)
     pdf.ln(10)
 
     # ---------------------------------------------------
