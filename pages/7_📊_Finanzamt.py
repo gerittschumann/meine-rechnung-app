@@ -1,73 +1,113 @@
 import streamlit as st
+from utils.db import get_connection
 import pandas as pd
-import datetime
-
-from utils.supabase_utils import get_supabase, get_belege_df
 
 st.set_page_config(
-    page_title="Finanzamt",
-    page_icon="📊",
+    page_title="🏦 Finanzamt",
+    page_icon="🏦",
     layout="wide"
 )
 
-st.title("📊 Finanzamt – Jahresübersicht")
+st.title("🏦 Auswertung für das Finanzamt / Steuerberater")
 
-supabase = get_supabase()
+st.write("""
+Hier findest du eine komprimierte Übersicht deiner relevanten Daten für das Finanzamt:
+- Umsätze aus Rechnungen
+- Einnahmen aus Quittungen
+- Angebote (unverbindlich)
+- Fahrtenbuch-Kilometer
+- Export als CSV
+""")
+
+conn = get_connection()
+cur = conn.cursor()
 
 # ---------------------------------------------------
-# Daten laden
+# UMSÄTZE / EINNAHMEN
 # ---------------------------------------------------
-df = get_belege_df(supabase)
+cur.execute("""
+    SELECT 
+        strftime('%Y', erstellt_am) AS jahr,
+        SUM(CASE WHEN typ = 'rechnung' THEN summe ELSE 0 END) AS rechnungen,
+        SUM(CASE WHEN typ = 'quittung' THEN summe ELSE 0 END) AS quittungen,
+        SUM(CASE WHEN typ = 'angebot' THEN summe ELSE 0 END) AS angebote
+    FROM dokumente
+    GROUP BY jahr
+    ORDER BY jahr DESC
+""")
+umsatz_jahre = cur.fetchall()
 
-if df.empty:
+# ---------------------------------------------------
+# FAHRTENBUCH
+# ---------------------------------------------------
+cur.execute("""
+    SELECT 
+        strftime('%Y', datum) AS jahr,
+        SUM(km_diff) AS km_gesamt
+    FROM fahrtenbuch
+    GROUP BY jahr
+    ORDER BY jahr DESC
+""")
+fahrten_jahre = cur.fetchall()
+
+# ---------------------------------------------------
+# DETAIL-DOKUMENTE FÜR EXPORT
+# ---------------------------------------------------
+cur.execute("""
+    SELECT 
+        typ,
+        nummer,
+        kunde_id,
+        summe,
+        erstellt_am
+    FROM dokumente
+    ORDER BY erstellt_am DESC
+""")
+dokumente = cur.fetchall()
+
+conn.close()
+
+# ---------------------------------------------------
+# JAHRESÜBERSICHT UMSÄTZE
+# ---------------------------------------------------
+st.subheader("📅 Jahresübersicht – Umsätze & Einnahmen")
+
+if not umsatz_jahre:
     st.info("Noch keine Dokumente vorhanden.")
-    st.stop()
+else:
+    df_umsatz = pd.DataFrame(umsatz_jahre)
+    df_umsatz.columns = ["Jahr", "Rechnungen (€)", "Quittungen (€)", "Angebote (€)"]
+    st.dataframe(df_umsatz, use_container_width=True)
 
 # ---------------------------------------------------
-# Daten vorbereiten
+# JAHRESÜBERSICHT FAHRTEN
 # ---------------------------------------------------
-df["datum"] = pd.to_datetime(df["erstellt_am"], errors="coerce")
-df["jahr"] = df["datum"].dt.year
+st.subheader("🚗 Jahresübersicht – Fahrtenbuch (Kilometer)")
 
-aktuelles_jahr = datetime.date.today().year
-df_jahr = df[df["jahr"] == aktuelles_jahr]
-
-# ---------------------------------------------------
-# Einnahmen / Ausgaben / Gewinn
-# ---------------------------------------------------
-einnahmen = df_jahr[df_jahr["typ"] == "rechnung"]["summe"].sum()
-ausgaben = df_jahr[df_jahr["typ"] == "ausgabe"]["summe"].sum() if "ausgabe" in df_jahr["typ"].unique() else 0
-gewinn = einnahmen - ausgaben
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric("💰 Einnahmen", f"{einnahmen:.2f} €")
-
-with col2:
-    st.metric("📉 Ausgaben", f"{ausgaben:.2f} €")
-
-with col3:
-    st.metric("📈 Gewinn", f"{gewinn:.2f} €")
+if not fahrten_jahre:
+    st.info("Noch keine Fahrten im Fahrtenbuch.")
+else:
+    df_fahrten = pd.DataFrame(fahrten_jahre)
+    df_fahrten.columns = ["Jahr", "Gefahrene Kilometer"]
+    st.dataframe(df_fahrten, use_container_width=True)
 
 # ---------------------------------------------------
-# Dokumentübersicht
+# DETAIL-EXPORT FÜR STEUERBERATER
 # ---------------------------------------------------
-st.subheader("📄 Dokumente des Jahres")
+st.subheader("📄 Detaildaten – Export für Steuerberater / Finanzamt")
 
-df_show = df_jahr[["nummer", "typ", "summe", "datum", "pdf_url"]].sort_values("datum", ascending=False)
-df_show["datum"] = df_show["datum"].dt.strftime("%d.%m.%Y")
+if not dokumente:
+    st.info("Noch keine Dokumente vorhanden.")
+else:
+    df_docs = pd.DataFrame(dokumente)
+    df_docs.columns = ["Typ", "Nummer", "Kunden-ID", "Summe (€)", "Erstellt am"]
 
-st.dataframe(df_show, use_container_width=True)
+    st.dataframe(df_docs, use_container_width=True)
 
-# ---------------------------------------------------
-# PDF Links anzeigen
-# ---------------------------------------------------
-st.subheader("📥 PDF Links")
-
-for _, row in df_show.iterrows():
-    icon = "📄" if row["typ"] == "rechnung" else "📑" if row["typ"] == "angebot" else "🧾"
-    st.markdown(f"**{icon} {row['nummer']} – {row['summe']:.2f} €**")
-    if row["pdf_url"]:
-        st.markdown(f"[PDF öffnen]({row['pdf_url']})")
-    st.markdown("---")
+    csv_data = df_docs.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📥 CSV-Export (Dokumente)",
+        data=csv_data,
+        file_name="dokumente_fuer_steuerberater.csv",
+        mime="text/csv"
+    )
