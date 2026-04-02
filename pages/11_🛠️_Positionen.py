@@ -1,122 +1,46 @@
 import streamlit as st
-from utils.supabase_utils import get_supabase
+from supabase import create_client, Client
 
-st.set_page_config(
-    page_title="Positionen",
-    page_icon="🛠️",
-    layout="wide"
-)
+# Supabase Client
+supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-supabase = get_supabase()
-
-st.title("🛠️ Positionen verwalten")
+st.title("⚙️ Leistungen verwalten")
 
 # ---------------------------------------------------
-# Positionen laden
+# LEISTUNGEN LADEN
 # ---------------------------------------------------
-def load_positionen():
-    try:
-        data = supabase.table("positionen").select("*").order("id").execute().data
-        return data if data else []
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Positionen: {e}")
-        return []
+res = supabase.table("leistungen").select("*").order("id").execute()
+leistungen = res.data if res.data else []
 
-positionen = load_positionen()
+st.subheader("➕ Neue Leistung hinzufügen")
 
-# ---------------------------------------------------
-# Neue Position hinzufügen
-# ---------------------------------------------------
-st.subheader("➕ Neue Position hinzufügen")
+bezeichnung = st.text_input("Bezeichnung")
+preis = st.number_input("Preis (€)", min_value=0.0, value=0.0)
+einheit = st.text_input("Einheit (optional)", value="")
 
-with st.form("pos_form"):
-    bezeichnung = st.text_input("Bezeichnung")
-    preis = st.number_input("Preis (€)", min_value=0.0, step=0.50)
-
-    submitted = st.form_submit_button("Speichern")
-
-    if submitted:
-        if not bezeichnung:
-            st.warning("Bitte eine Bezeichnung eingeben.")
-        else:
-            try:
-                supabase.table("positionen").insert({
-                    "bezeichnung": bezeichnung,
-                    "preis": preis
-                }).execute()
-                st.success("Position erfolgreich gespeichert.")
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Fehler beim Speichern: {e}")
+if st.button("Speichern"):
+    supabase.table("leistungen").insert({
+        "bezeichnung": bezeichnung,
+        "preis": preis,
+        "einheit": einheit
+    }).execute()
+    st.success("Leistung gespeichert.")
+    st.rerun()
 
 # ---------------------------------------------------
-# Positionenliste anzeigen
+# LEISTUNGEN LISTE
 # ---------------------------------------------------
-st.subheader("📋 Positionenliste")
+st.subheader("📋 Leistungenliste")
 
-if not positionen:
-    st.info("Noch keine Positionen vorhanden.")
+if not leistungen:
+    st.info("Noch keine Leistungen vorhanden.")
 else:
-    for p in positionen:
-        with st.container():
-            st.write(f"### {p['bezeichnung']}")
-            st.write(f"💰 Preis: **{p['preis']:.2f} €**")
+    for l in leistungen:
+        col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+        col1.write(l["bezeichnung"])
+        col2.write(f"{l['preis']:.2f} €")
+        col3.write(l.get("einheit", ""))
 
-            col1, col2 = st.columns(2)
-
-            # ---------------------------------------------------
-            # Bearbeiten
-            # ---------------------------------------------------
-            with col1:
-                if st.button("✏️ Bearbeiten", key=f"edit_{p['id']}"):
-                    st.session_state["edit_pos_id"] = p["id"]
-
-            # ---------------------------------------------------
-            # Löschen
-            # ---------------------------------------------------
-            with col2:
-                if st.button("🗑️ Löschen", key=f"del_{p['id']}"):
-                    try:
-                        supabase.table("positionen").delete().eq("id", p["id"]).execute()
-                        st.success("Position gelöscht.")
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Fehler beim Löschen: {e}")
-
-            st.markdown("---")
-
-# ---------------------------------------------------
-# Bearbeitungsformular anzeigen
-# ---------------------------------------------------
-if "edit_pos_id" in st.session_state:
-    edit_id = st.session_state["edit_pos_id"]
-
-    st.subheader("✏️ Position bearbeiten")
-
-    # Position laden
-    pos = supabase.table("positionen").select("*").eq("id", edit_id).execute().data[0]
-
-    with st.form("edit_pos_form"):
-        bezeichnung = st.text_input("Bezeichnung", value=pos["bezeichnung"])
-        preis = st.number_input("Preis (€)", min_value=0.0, step=0.50, value=float(pos["preis"]))
-
-        save_edit = st.form_submit_button("Änderungen speichern")
-        cancel_edit = st.form_submit_button("Abbrechen")
-
-        if save_edit:
-            try:
-                supabase.table("positionen").update({
-                    "bezeichnung": bezeichnung,
-                    "preis": preis
-                }).eq("id", edit_id).execute()
-
-                st.success("Position erfolgreich aktualisiert.")
-                del st.session_state["edit_pos_id"]
-                st.experimental_rerun()
-
-            except Exception as e:
-                st.error(f"Fehler beim Aktualisieren: {e}")
-
-        if cancel_edit:
-            del st.session_state["edit_pos_id"]
-            st.experimental_rerun()
+        if col4.button("❌", key=f"del_{l['id']}"):
+            supabase.table("leistungen").delete().eq("id", l["id"]).execute()
+            st.rerun()
