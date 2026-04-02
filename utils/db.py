@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+import datetime
 
 DB_PATH = Path("database.db")
 
@@ -62,7 +63,7 @@ def init_db():
     """)
 
     # ---------------------------------------------------
-    # POSITIONEN
+    # POSITIONEN (Dokument-Positionen)
     # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS positionen (
@@ -88,6 +89,20 @@ def init_db():
             km_start REAL,
             km_ende REAL,
             km_diff REAL,
+            erstellt_am TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # ---------------------------------------------------
+    # LEISTUNGSKATALOG
+    # ---------------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS leistungen (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            preis REAL,
+            einheit TEXT,
+            beschreibung TEXT,
             erstellt_am TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
