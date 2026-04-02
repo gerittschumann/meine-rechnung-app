@@ -262,3 +262,18 @@ if submitted:
         file_name=f"Quittung_{nummer}.pdf",
         mime="application/pdf"
     )
+from utils.pdf_generator import generate_pdf
+import streamlit as st
+
+pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
+
+st.subheader("📄 Vorschau")
+
+st.download_button(
+    label="PDF herunterladen",
+    data=pdf_bytes,
+    file_name=f"{dokument['nummer']}.pdf",
+    mime="application/pdf"
+)
+
+st.pdf(pdf_bytes)
