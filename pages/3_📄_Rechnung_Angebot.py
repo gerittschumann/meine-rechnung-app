@@ -75,7 +75,7 @@ res_pos = supabase.table("positionen").select("*").eq("dokument_id", doc_id).exe
 positionen = res_pos.data if res_pos.data else []
 
 # ---------------------------------------------------
-# POSITIONEN ANZEIGEN & BEARBEITEN
+# POSITIONEN ANZEIGEN
 # ---------------------------------------------------
 st.subheader("🛒 Positionen")
 
@@ -91,14 +91,51 @@ for pos in positionen:
         st.rerun()
 
 # ---------------------------------------------------
-# NEUE POSITION HINZUFÜGEN
+# LEISTUNGEN LADEN
 # ---------------------------------------------------
+leistungen = supabase.table("leistungen").select("*").execute().data
+leistungsnamen = {l["bezeichnung"]: l for l in leistungen}
+
 st.subheader("➕ Position hinzufügen")
 
-beschreibung = st.text_input("Beschreibung")
-menge = st.number_input("Menge", min_value=1.0, value=1.0)
-preis = st.number_input("Preis (EUR)", min_value=0.0, value=0.0)
+# Dropdown für Leistungen
+auswahl = st.selectbox(
+    "Leistung auswählen",
+    ["Manuelle Eingabe"] + list(leistungsnamen.keys())
+)
 
+# ---------------------------------------------------
+# AUTOMATISCHE ÜBERNAHME ODER MANUELLE EINGABE
+# ---------------------------------------------------
+if auswahl != "Manuelle Eingabe":
+    leistung = leistungsnamen[auswahl]
+
+    beschreibung = st.text_input(
+        "Beschreibung",
+        value=leistung["bezeichnung"]
+    )
+
+    preis = st.number_input(
+        "Preis (EUR)",
+        min_value=0.0,
+        value=float(leistung["preis"])
+    )
+
+    einheit = st.text_input(
+        "Einheit",
+        value=leistung.get("einheit", "")
+    )
+
+else:
+    beschreibung = st.text_input("Beschreibung")
+    preis = st.number_input("Preis (EUR)", min_value=0.0, value=0.0)
+    einheit = st.text_input("Einheit", value="")
+
+menge = st.number_input("Menge", min_value=1.0, value=1.0)
+
+# ---------------------------------------------------
+# POSITION SPEICHERN
+# ---------------------------------------------------
 if st.button("Position speichern"):
     gesamt = menge * preis
 
@@ -107,9 +144,11 @@ if st.button("Position speichern"):
         "beschreibung": beschreibung,
         "menge": menge,
         "preis": preis,
+        "einheit": einheit,
         "gesamt": gesamt
     }).execute()
 
+    st.success("Position gespeichert.")
     st.rerun()
 
 # ---------------------------------------------------
