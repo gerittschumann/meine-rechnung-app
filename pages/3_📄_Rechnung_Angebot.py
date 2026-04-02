@@ -7,6 +7,7 @@ st.set_page_config(
 )
 
 from utils.supabase_utils import get_supabase
+from utils.pdf_utils import create_pdf
 
 supabase = get_supabase()
 
@@ -69,20 +70,55 @@ with st.form("dokument_form"):
 
     submitted = st.form_submit_button("Speichern")
 
-    if submitted:
-        # Dokument speichern
-        doc = supabase.table("dokumente").insert({
-            "typ": art.lower(),
-            "kunde_id": kunden_namen[kunde],
-            "summe": gesamt
-        }).execute()
+# ---------------------------------------------------
+# PDF erzeugen & speichern
+# ---------------------------------------------------
+if submitted:
+    # Dokument speichern
+    doc = supabase.table("dokumente").insert({
+        "typ": art.lower(),
+        "kunde_id": kunden_namen[kunde],
+        "summe": gesamt
+    }).execute()
 
-        doc_id = doc.data[0]["id"]
+    doc_id = doc.data[0]["id"]
 
-        # Positionen speichern
-        for p in pos_eintraege:
-            p["dokument_id"] = doc_id
-            supabase.table("dokument_positionen").insert(p).execute()
+    # Positionen speichern
+    for p in pos_eintraege:
+        p["dokument_id"] = doc_id
+        supabase.table("dokument_positionen").insert(p).execute()
 
-        st.success(f"{art} erfolgreich gespeichert!")
-        st.info("PDF‑Erstellung folgt im nächsten Schritt.")
+    st.success(f"{art} erfolgreich gespeichert!")
+
+    # Kundendaten laden
+    kunde_data = supabase.table("kunden").select("*").eq("id", kunden_namen[kunde]).execute().data[0]
+
+    # Positionen für PDF aufbereiten
+    pos_for_pdf = []
+    for p in pos_eintraege:
+        pos_info = supabase.table("positionen").select("*").eq("id", p["position_id"]).execute().data[0]
+        pos_for_pdf.append({
+            "bezeichnung": pos_info["bezeichnung"],
+            "menge": p["menge"],
+            "gesamtpreis": p["gesamtpreis"]
+        })
+
+    # PDF erzeugen
+    pdf_bytes = create_pdf(
+        kunde=kunde_data,
+        positionen=pos_for_pdf,
+        summe=gesamt,
+        dokument_typ=art,
+        dokument_nr=doc_id
+    )
+
+    st.subheader("📄 PDF Vorschau")
+
+    st.download_button(
+        label="📥 PDF herunterladen",
+        data=pdf_bytes,
+        file_name=f"{art}_{doc_id}.pdf",
+        mime="application/pdf"
+    )
+
+    st.info("PDF wurde erfolgreich erstellt.")
