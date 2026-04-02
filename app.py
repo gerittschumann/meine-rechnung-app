@@ -1,57 +1,57 @@
 import streamlit as st
+from utils.db import init_db
 
 # ---------------------------------------------------
-# Streamlit Page Config – MUSS GANZ OBEN STEHEN
+# GRUNDEINSTELLUNGEN
 # ---------------------------------------------------
 st.set_page_config(
-    page_title="Nebengewerbe App",
-    page_icon="🚚",
+    page_title="Nebengewerbe – Verwaltung",
+    page_icon="📊",
     layout="wide"
 )
 
 # ---------------------------------------------------
-# Supabase-Funktionen importieren
+# DATENBANK INITIALISIEREN
 # ---------------------------------------------------
-from utils.supabase_utils import (
-    get_supabase,
-    get_belege_df,
-    get_positionen_df,
-    upload_pdf_to_supabase
-)
+init_db()
 
 # ---------------------------------------------------
-# Offline-Sync importieren
+# STARTSEITE / DASHBOARD
 # ---------------------------------------------------
-from utils.offline_utils import sync_pending
+st.title("📊 Dashboard")
 
-# ---------------------------------------------------
-# Supabase Client erzeugen
-# ---------------------------------------------------
-supabase = get_supabase()
+st.write("""
+Willkommen in deiner Verwaltungs-App für dein Nebengewerbe.
 
-# ---------------------------------------------------
-# Streamlit UI
-# ---------------------------------------------------
-st.title("🏠 Dashboard")
-st.write("Willkommen in deiner Nebengewerbe-App!")
+Über die Navigation links kannst du:
+- Kunden verwalten
+- Rechnungen und Angebote erstellen
+- Quittungen erfassen
+- Fahrtenbuch führen
+- Finanzen und Jahresberichte einsehen
+- Einstellungen für Firmendaten pflegen
+- Archivierte Dokumente ansehen
+""")
 
-st.info("Nutze das Menü links, um Rechnungen, Angebote, Quittungen, Ausgaben, Fahrten und mehr zu verwalten.")
+st.write("---")
 
-# ---------------------------------------------------
-# Offline gespeicherte Einträge synchronisieren
-# ---------------------------------------------------
-synced = sync_pending(supabase)
-if synced > 0:
-    st.success(f"{synced} offline gespeicherte Einträge wurden synchronisiert.")
+col1, col2, col3 = st.columns(3)
 
-# ---------------------------------------------------
-# Beispiel: Belege laden (optional)
-# ---------------------------------------------------
-# df_belege = get_belege_df(supabase)
-# st.write(df_belege)
+with col1:
+    st.subheader("👥 Kunden")
+    st.write("Verwalte deine Kundenstammdaten.")
+    st.write("➡️ Seite: **2_🧍_Kunden**")
 
-# ---------------------------------------------------
-# Beispiel: Positionen laden (optional)
-# ---------------------------------------------------
-# df_positionen = get_positionen_df(supabase)
-# st.write(df_positionen)
+with col2:
+    st.subheader("📑 Rechnungen & Angebote")
+    st.write("Erstelle und verwalte Rechnungen und Angebote.")
+    st.write("➡️ Seite: **3_📑_Rechnung_Angebot**")
+
+with col3:
+    st.subheader("📦 Archiv")
+    st.write("Alle erzeugten Dokumente im Überblick.")
+    st.write("➡️ Seite: **8_📦_Archiv**")
+
+st.write("---")
+
+st.info("Hinweis: Die Daten werden in einer lokalen SQLite-Datenbank (`database.db`) gespeichert. PDFs liegen im Archiv-Ordner auf dem Server.")
