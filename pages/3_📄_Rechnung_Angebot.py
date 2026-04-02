@@ -13,156 +13,199 @@ st.set_page_config(
 
 supabase = get_supabase()
 
-st.title("📄 Rechnung / Angebot")
+st.title("📄 Rechnung / Angebot erstellen")
 
 # ---------------------------------------------------
-# Kunden & Positionen laden
+# Kunden laden
 # ---------------------------------------------------
 kunden = supabase.table("kunden").select("*").execute().data
 kunden_namen = {k["name"]: k["id"] for k in kunden} if kunden else {}
 
+# ---------------------------------------------------
+# Positionen laden
+# ---------------------------------------------------
 positionen = supabase.table("positionen").select("*").execute().data
 pos_dict = {p["bezeichnung"]: p for p in positionen} if positionen else {}
 
 # ---------------------------------------------------
-# Formular: Neues Dokument
+# Warenkorb in Session State
 # ---------------------------------------------------
-st.subheader("🧾 Neues Dokument erstellen")
+if "warenkorb" not in st.session_state:
+    st.session_state["warenkorb"] = []
+
+def warenkorb_hinzufuegen(pos_name, menge):
+    pos = pos_dict[pos_name]
+    st.session_state["warenkorb"].append({
+        "id": pos["id"],
+        "bezeichnung": pos_name,
+        "menge": menge,
+        "einzelpreis": pos["preis"],
+        "gesamtpreis": menge * pos["preis"]
+    })
+
+def warenkorb_loeschen():
+    st.session_state["warenkorb"] = []
+
+def warenkorb_entfernen(index):
+    st.session_state["warenkorb"].pop(index)
+
+# ---------------------------------------------------
+# Formular: Positionen hinzufügen
+# ---------------------------------------------------
+st.subheader("🧾 Positionen auswählen")
+
+with st.form("pos_form"):
+    pos_name = st.selectbox("Position auswählen", list(pos_dict.keys()))
+    menge = st.number_input("Menge", min_value=1, value=1)
+    add = st.form_submit_button("Zum Warenkorb hinzufügen")
+
+    if add:
+        warenkorb_hinzufuegen(pos_name, menge)
+        st.success("Position hinzugefügt.")
+
+# ---------------------------------------------------
+# Warenkorb anzeigen
+# ---------------------------------------------------
+st.subheader("🛒 Warenkorb")
+
+gesamt = 0
+
+if not st.session_state["warenkorb"]:
+    st.info("Warenkorb ist leer.")
+else:
+    for i, item in enumerate(st.session_state["warenkorb"]):
+        col1, col2, col3, col4 = st.columns([4, 2, 2, 1])
+
+        with col1:
+            st.write(f"**{item['bezeichnung']}**")
+
+        with col2:
+            neue_menge = st.number_input(
+                f"Menge {i}",
+                min_value=1,
+                value=item["menge"],
+                key=f"edit_menge_{i}"
+            )
+
+        with col3:
+            st.write(f"{item['gesamtpreis']:.2f} €")
+
+        with col4:
+            if st.button("❌", key=f"del_{i}"):
+                warenkorb_entfernen(i)
+                st.experimental_rerun()
+
+        # Menge aktualisieren
+        if neue_menge != item["menge"]:
+            item["menge"] = neue_menge
+            item["gesamtpreis"] = neue_menge * item["einzelpreis"]
+
+        gesamt += item["gesamtpreis"]
+
+    st.markdown(f"### 💰 Gesamtsumme: **{gesamt:.2f} €**")
+
+    if st.button("🗑️ Warenkorb leeren"):
+        warenkorb_loeschen()
+        st.experimental_rerun()
+
+# ---------------------------------------------------
+# Dokument erstellen
+# ---------------------------------------------------
+st.subheader("📄 Dokument erstellen")
 
 with st.form("dokument_form"):
     art = st.selectbox("Dokumentart", ["Rechnung", "Angebot"])
+    kunde_name = st.selectbox("Kunde auswählen", list(kunden_namen.keys()))
 
-    if not kunden_namen:
-        st.warning("Keine Kunden vorhanden. Bitte zuerst Kunden anlegen.")
-        submitted = False
+    speichern = st.form_submit_button("Dokument speichern")
+
+if speichern:
+    if not st.session_state["warenkorb"]:
+        st.warning("Warenkorb ist leer.")
     else:
-        kunde_name = st.selectbox("Kunde auswählen", list(kunden_namen.keys()))
+        kunde_id = kunden_namen[kunde_name]
 
-        st.markdown("### Positionen auswählen")
-        ausgewaehlte_pos = st.multiselect(
-            "Positionen",
-            list(pos_dict.keys())
-        )
+        # 1. Dokument speichern
+        doc = supabase.table("dokumente").insert({
+            "typ": art.lower(),
+            "kunde_id": kunde_id,
+            "summe": gesamt,
+            "erstellt_am": datetime.datetime.utcnow().isoformat()
+        }).execute()
 
-        gesamt = 0
-        pos_eintraege = []
+        doc_id = doc.data[0]["id"]
 
-        for pos_name in ausgewaehlte_pos:
-            pos = pos_dict[pos_name]
+        # 2. Nummer generieren
+        prefix = "R" if art == "Rechnung" else "A"
+        heute = datetime.datetime.now().strftime("%Y%m%d")
+        nummer = f"{prefix}-{heute}-{doc_id:04d}"
 
-            menge = st.number_input(
-                f"Menge für {pos_name}",
-                min_value=1,
-                value=1,
-                key=f"menge_{pos_name}"
-            )
+        supabase.table("dokumente").update({"nummer": nummer}).eq("id", doc_id).execute()
 
-            gesamtpreis = menge * pos["preis"]
-            gesamt += gesamtpreis
-
-            pos_eintraege.append({
-                "position_id": pos["id"],
-                "menge": menge,
-                "einzelpreis": pos["preis"],
-                "gesamtpreis": gesamtpreis
-            })
-
-        st.markdown(f"### 💰 Gesamtsumme: **{gesamt:.2f} €**")
-
-        submitted = st.form_submit_button("Speichern")
-
-# ---------------------------------------------------
-# Verarbeitung: Speichern + PDF + Storage + Nummer
-# ---------------------------------------------------
-if submitted:
-    if not ausgewaehlte_pos:
-        st.warning("Bitte mindestens eine Position auswählen.")
-    else:
-        try:
-            kunde_id = kunden_namen[kunde_name]
-
-            # 1. Dokument zunächst ohne Nummer speichern
-            doc = supabase.table("dokumente").insert({
-                "typ": art.lower(),          # "rechnung" / "angebot"
-                "kunde_id": kunde_id,
-                "summe": gesamt,
-                "erstellt_am": datetime.datetime.utcnow().isoformat()
+        # 3. Positionen speichern
+        for item in st.session_state["warenkorb"]:
+            supabase.table("dokument_positionen").insert({
+                "dokument_id": doc_id,
+                "position_id": item["id"],
+                "menge": item["menge"],
+                "einzelpreis": item["einzelpreis"],
+                "gesamtpreis": item["gesamtpreis"]
             }).execute()
 
-            doc_id = doc.data[0]["id"]
+        # 4. Kundendaten laden
+        kunde_data = supabase.table("kunden").select("*").eq("id", kunde_id).execute().data[0]
 
-            # 2. Nummer generieren (z.B. R-20260402-0001)
-            prefix = "R" if art == "Rechnung" else "A"
-            heute = datetime.datetime.now().strftime("%Y%m%d")
-            nummer = f"{prefix}-{heute}-{doc_id:04d}"
+        # 5. PDF erzeugen
+        pos_for_pdf = [
+            {
+                "bezeichnung": item["bezeichnung"],
+                "menge": item["menge"],
+                "gesamtpreis": item["gesamtpreis"]
+            }
+            for item in st.session_state["warenkorb"]
+        ]
 
-            supabase.table("dokumente").update({
-                "nummer": nummer
-            }).eq("id", doc_id).execute()
+        pdf_bytes = create_pdf(
+            title=art,
+            nummer=nummer,
+            kunde=kunde_data,
+            positionen=pos_for_pdf,
+            summe=gesamt
+        )
 
-            # 3. Positionen speichern
-            for p in pos_eintraege:
-                p["dokument_id"] = doc_id
-                supabase.table("dokument_positionen").insert(p).execute()
+        # 6. PDF hochladen
+        bucket = "pdfs"
+        path = f"{art.lower()}/{nummer}.pdf"
+        pdf_url = upload_pdf_to_storage(supabase, pdf_bytes, bucket, path)
 
-            # 4. Kundendaten laden
-            kunde_data = supabase.table("kunden").select("*").eq("id", kunde_id).execute().data[0]
+        supabase.table("dokumente").update({"pdf_url": pdf_url}).eq("id", doc_id).execute()
 
-            # 5. Positionen für PDF aufbereiten
-            pos_for_pdf = []
-            for p in pos_eintraege:
-                pos_info = supabase.table("positionen").select("*").eq("id", p["position_id"]).execute().data[0]
-                pos_for_pdf.append({
-                    "bezeichnung": pos_info["bezeichnung"],
-                    "menge": p["menge"],
-                    "gesamtpreis": p["gesamtpreis"]
-                })
+        # 7. Warenkorb leeren
+        warenkorb_loeschen()
 
-            # 6. PDF erzeugen
-            pdf_bytes = create_pdf(
-                kunde=kunde_data,
-                positionen=pos_for_pdf,
-                summe=gesamt,
-                dokument_typ=art,
-                dokument_nr=nummer
-            )
+        st.success(f"{art} {nummer} gespeichert.")
 
-            # 7. PDF in Supabase Storage hochladen
-            bucket_name = "pdfs"
-            path = f"{art.lower()}/{nummer}.pdf"
-            pdf_url = upload_pdf_to_storage(supabase, pdf_bytes, bucket_name, path)
+        # 8. PDF Vorschau
+        st.subheader("📄 PDF Vorschau")
+        data_url = pdf_bytes_to_data_url(pdf_bytes)
 
-            # 8. PDF-URL im Dokument speichern
-            supabase.table("dokumente").update({
-                "pdf_url": pdf_url
-            }).eq("id", doc_id).execute()
+        components.html(
+            f"<iframe src='{data_url}' width='100%' height='600px' style='border:none;'></iframe>",
+            height=620
+        )
 
-            st.success(f"{art} {nummer} erfolgreich gespeichert.")
-
-            # 9. PDF-Vorschau + Download
-            st.subheader("📄 PDF Vorschau")
-
-            data_url = pdf_bytes_to_data_url(pdf_bytes)
-            components.html(
-                f"<iframe src='{data_url}' width='100%' height='600px' style='border:none;'></iframe>",
-                height=620
-            )
-
-            st.download_button(
-                label="📥 PDF herunterladen",
-                data=pdf_bytes,
-                file_name=f"{art}_{nummer}.pdf",
-                mime="application/pdf"
-            )
-
-        except Exception as e:
-            st.error(f"Fehler beim Erstellen des Dokuments: {e}")
+        st.download_button(
+            label="📥 PDF herunterladen",
+            data=pdf_bytes,
+            file_name=f"{art}_{nummer}.pdf",
+            mime="application/pdf"
+        )
 
 # ---------------------------------------------------
-# Übersicht: Rechnungen & Angebote
+# Dokumente Übersicht
 # ---------------------------------------------------
 st.markdown("---")
-st.subheader("📚 Übersicht: Rechnungen & Angebote")
+st.subheader("📚 Übersicht")
 
 filter_art = st.selectbox("Anzeigen:", ["Alle", "Rechnungen", "Angebote"])
 
@@ -176,32 +219,16 @@ elif filter_art == "Angebote":
 docs = query.order("erstellt_am", desc=True).execute().data
 
 if not docs:
-    st.info("Noch keine Dokumente vorhanden.")
+    st.info("Keine Dokumente vorhanden.")
 else:
     for d in docs:
-        kunde_name = "-"
-        try:
-            kd = supabase.table("kunden").select("name").eq("id", d["kunde_id"]).execute().data
-            if kd:
-                kunde_name = kd[0]["name"]
-        except:
-            pass
+        kunde = supabase.table("kunden").select("name").eq("id", d["kunde_id"]).execute().data
+        kunde_name = kunde[0]["name"] if kunde else "-"
 
-        with st.container():
-            st.write(f"**{d.get('nummer', 'Ohne Nummer')}** – {d['typ'].capitalize()}")
-            st.write(f"👤 {kunde_name} | 💰 {d.get('summe', 0):.2f} € | 📅 {d.get('erstellt_am', '-')}")
-            if d.get("pdf_url"):
-                st.write(f"🔗 PDF: {d['pdf_url']}")
+        st.write(f"### {d['nummer']} – {d['typ'].capitalize()}")
+        st.write(f"👤 {kunde_name} | 💰 {d['summe']:.2f} € | 📅 {d['erstellt_am']}")
 
-            col1, col2 = st.columns(2)
+        if d.get("pdf_url"):
+            st.markdown(f"[📄 PDF öffnen]({d['pdf_url']})")
 
-            with col1:
-                if d.get("pdf_url"):
-                    if st.button("📄 PDF im Browser öffnen", key=f"open_{d['id']}"):
-                        st.markdown(f"[PDF öffnen]({d['pdf_url']})", unsafe_allow_html=True)
-
-            with col2:
-                # Optional: später z.B. löschen / duplizieren
-                pass
-
-            st.markdown("---")
+        st.markdown("---")
