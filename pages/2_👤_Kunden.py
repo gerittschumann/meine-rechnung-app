@@ -1,132 +1,135 @@
 import streamlit as st
-from utils.supabase_utils import get_supabase
+from utils.db import get_connection
 
 st.set_page_config(
-    page_title="Kunden",
-    page_icon="👤",
+    page_title="🧍 Kunden",
+    page_icon="🧍",
     layout="wide"
 )
 
-supabase = get_supabase()
-
-st.title("👤 Kundenverwaltung")
+st.title("🧍 Kundenverwaltung")
 
 # ---------------------------------------------------
-# Kunden laden
+# FUNKTIONEN
 # ---------------------------------------------------
-def load_kunden():
-    try:
-        data = supabase.table("kunden").select("*").order("id").execute().data
-        return data if data else []
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Kunden: {e}")
-        return []
 
-kunden = load_kunden()
+def lade_kunden():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM kunden ORDER BY name ASC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+def kunden_anlegen(name, adresse, plz, ort, email, telefon):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO kunden (name, adresse, plz, ort, email, telefon)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (name, adresse, plz, ort, email, telefon))
+    conn.commit()
+    conn.close()
+
+def kunden_aktualisieren(kunden_id, name, adresse, plz, ort, email, telefon):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE kunden SET
+            name = ?,
+            adresse = ?,
+            plz = ?,
+            ort = ?,
+            email = ?,
+            telefon = ?
+        WHERE id = ?
+    """, (name, adresse, plz, ort, email, telefon, kunden_id))
+    conn.commit()
+    conn.close()
+
+def kunden_loeschen(kunden_id):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM kunden WHERE id = ?", (kunden_id,))
+    conn.commit()
+    conn.close()
 
 # ---------------------------------------------------
-# Kunden hinzufügen
+# KUNDENLISTE
 # ---------------------------------------------------
-st.subheader("➕ Neuen Kunden hinzufügen")
 
-with st.form("kunden_form"):
-    name = st.text_input("Name")
-    adresse = st.text_input("Adresse")
-    email = st.text_input("E-Mail")
-    telefon = st.text_input("Telefon")
-
-    submitted = st.form_submit_button("Speichern")
-
-    if submitted:
-        if not name:
-            st.warning("Bitte mindestens einen Namen eingeben.")
-        else:
-            try:
-                supabase.table("kunden").insert({
-                    "name": name,
-                    "adresse": adresse,
-                    "email": email,
-                    "telefon": telefon
-                }).execute()
-                st.success("Kunde erfolgreich gespeichert.")
-                st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Fehler beim Speichern: {e}")
-
-# ---------------------------------------------------
-# Kundenliste anzeigen
-# ---------------------------------------------------
 st.subheader("📋 Kundenliste")
+
+kunden = lade_kunden()
 
 if not kunden:
     st.info("Noch keine Kunden vorhanden.")
 else:
     for k in kunden:
-        with st.container():
-            st.write(f"### {k['name']}")
-            st.write(f"📍 {k.get('adresse', '-')}")
-            st.write(f"📧 {k.get('email', '-')}")
-            st.write(f"📞 {k.get('telefon', '-')}")
+        with st.expander(f"{k['name']} (ID: {k['id']})"):
+            col1, col2 = st.columns([3, 1])
 
-            col1, col2 = st.columns(2)
-
-            # ---------------------------------------------------
-            # Bearbeiten
-            # ---------------------------------------------------
             with col1:
-                if st.button("✏️ Bearbeiten", key=f"edit_{k['id']}"):
-                    st.session_state["edit_id"] = k["id"]
+                st.write(f"**Adresse:** {k['adresse']}")
+                st.write(f"**PLZ / Ort:** {k['plz']} {k['ort']}")
+                st.write(f"**E-Mail:** {k['email']}")
+                st.write(f"**Telefon:** {k['telefon']}")
 
-            # ---------------------------------------------------
-            # Löschen
-            # ---------------------------------------------------
             with col2:
-                if st.button("🗑️ Löschen", key=f"del_{k['id']}"):
-                    try:
-                        supabase.table("kunden").delete().eq("id", k["id"]).execute()
-                        st.success("Kunde gelöscht.")
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Fehler beim Löschen: {e}")
+                if st.button("Bearbeiten", key=f"edit_{k['id']}"):
+                    st.session_state["edit_kunde"] = k
 
-            st.markdown("---")
+                if st.button("Löschen", key=f"delete_{k['id']}"):
+                    kunden_loeschen(k['id'])
+                    st.success("Kunde gelöscht.")
+                    st.experimental_rerun()
+
+st.write("---")
 
 # ---------------------------------------------------
-# Bearbeitungsformular anzeigen
+# KUNDEN BEARBEITEN
 # ---------------------------------------------------
-if "edit_id" in st.session_state:
-    edit_id = st.session_state["edit_id"]
 
-    st.subheader("✏️ Kunde bearbeiten")
+if "edit_kunde" in st.session_state:
+    k = st.session_state["edit_kunde"]
 
-    # Kundendaten laden
-    kunde = supabase.table("kunden").select("*").eq("id", edit_id).execute().data[0]
+    st.subheader(f"✏️ Kunde bearbeiten: {k['name']}")
 
-    with st.form("edit_form"):
-        name = st.text_input("Name", value=kunde["name"])
-        adresse = st.text_input("Adresse", value=kunde.get("adresse", ""))
-        email = st.text_input("E-Mail", value=kunde.get("email", ""))
-        telefon = st.text_input("Telefon", value=kunde.get("telefon", ""))
+    name = st.text_input("Name", k["name"])
+    adresse = st.text_input("Adresse", k["adresse"])
+    plz = st.text_input("PLZ", k["plz"])
+    ort = st.text_input("Ort", k["ort"])
+    email = st.text_input("E-Mail", k["email"])
+    telefon = st.text_input("Telefon", k["telefon"])
 
-        save_edit = st.form_submit_button("Änderungen speichern")
-        cancel_edit = st.form_submit_button("Abbrechen")
+    if st.button("Änderungen speichern"):
+        kunden_aktualisieren(k["id"], name, adresse, plz, ort, email, telefon)
+        st.success("Kunde aktualisiert.")
+        del st.session_state["edit_kunde"]
+        st.experimental_rerun()
 
-        if save_edit:
-            try:
-                supabase.table("kunden").update({
-                    "name": name,
-                    "adresse": adresse,
-                    "email": email,
-                    "telefon": telefon
-                }).eq("id", edit_id).execute()
+    st.write("---")
 
-                st.success("Kunde erfolgreich aktualisiert.")
-                del st.session_state["edit_id"]
-                st.experimental_rerun()
+# ---------------------------------------------------
+# NEUEN KUNDEN ANLEGEN
+# ---------------------------------------------------
 
-            except Exception as e:
-                st.error(f"Fehler beim Aktualisieren: {e}")
+st.subheader("➕ Neuen Kunden anlegen")
 
-        if cancel_edit:
-            del st.session_state["edit_id"]
+with st.form("kunden_formular"):
+    name = st.text_input("Name")
+    adresse = st.text_input("Adresse")
+    plz = st.text_input("PLZ")
+    ort = st.text_input("Ort")
+    email = st.text_input("E-Mail")
+    telefon = st.text_input("Telefon")
+
+    submitted = st.form_submit_button("Kunde speichern")
+
+    if submitted:
+        if name.strip() == "":
+            st.error("Name darf nicht leer sein.")
+        else:
+            kunden_anlegen(name, adresse, plz, ort, email, telefon)
+            st.success("Kunde erfolgreich angelegt.")
             st.experimental_rerun()
