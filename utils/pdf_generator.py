@@ -8,9 +8,9 @@ def generate_pdf(dokument, positionen, einstellungen):
     pdf.set_auto_page_break(auto=True, margin=15)
 
     # ---------------------------------------------------
-    # UNICODE FONT LADEN (RICHTIGER PFAD!)
+    # UNICODE FONT LADEN (ABSOLUTER PFAD!)
     # ---------------------------------------------------
-    font_path = "../app/fonts/DejaVuSans.ttf"
+    font_path = "/app/app/fonts/DejaVuSans.ttf"
 
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"Font fehlt: {font_path}")
@@ -19,7 +19,7 @@ def generate_pdf(dokument, positionen, einstellungen):
     pdf.set_font("DejaVu", "", 12)
 
     # ---------------------------------------------------
-    # EINSTELLUNGEN SICHER LADEN
+    # EINSTELLUNGEN
     # ---------------------------------------------------
     firma = einstellungen.get("firmenname", "")
     strasse = einstellungen.get("strasse", "")
