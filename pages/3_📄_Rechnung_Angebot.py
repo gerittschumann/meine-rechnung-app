@@ -1,3 +1,17 @@
+import streamlit as st
+from supabase import create_client, Client
+from utils.pdf_generator import generate_pdf
+
+# Supabase Client initialisieren
+supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+
+# Dokument-ID laden (aus Session oder URL)
+doc_id = st.session_state.get("doc_id")
+
+if not doc_id:
+    st.error("Kein Dokument ausgewählt.")
+    st.stop()
+
 # 1. Dokument laden
 res_doc = supabase.table("dokumente").select("*").eq("id", doc_id).execute()
 if not res_doc.data:
@@ -19,7 +33,6 @@ if not res_set.data:
 einstellungen = res_set.data[0]
 
 # 4. PDF erzeugen
-from utils.pdf_generator import generate_pdf
 pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
 
 # 5. Vorschau + Download
