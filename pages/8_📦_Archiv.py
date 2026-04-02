@@ -1,7 +1,8 @@
 import streamlit as st
 from utils.db import get_connection
-from pathlib import Path
 import pandas as pd
+from pathlib import Path
+import base64
 
 st.set_page_config(
     page_title="📦 Archiv",
@@ -9,105 +10,83 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📦 Archiv – Alle gespeicherten Dokumente")
+st.title("📦 Archiv – Rechnungen, Angebote & Quittungen")
+
+st.write("""
+Hier findest du alle gespeicherten Dokumente (Rechnungen, Angebote, Quittungen).
+Du kannst die PDFs direkt herunterladen.
+""")
 
 # ---------------------------------------------------
-# ARCHIV-PFAD (Railway Persistent Volume)
-# ---------------------------------------------------
-ARCHIV_DIR = Path("/mnt/data/archiv")
-ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
-
-# ---------------------------------------------------
-# DATEN LADEN
+# DB VERBINDUNG
 # ---------------------------------------------------
 conn = get_connection()
 cur = conn.cursor()
 
+# ---------------------------------------------------
+# DOKUMENTE LADEN
+# ---------------------------------------------------
 cur.execute("""
     SELECT 
-        id,
-        typ,
-        nummer,
-        kunde_id,
-        summe,
-        pdf_path,
-        erstellt_am
-    FROM dokumente
-    ORDER BY erstellt_am DESC
+        d.id,
+        d.typ,
+        d.nummer,
+        d.summe,
+        d.pdf_path AS pdf,
+        d.erstellt_am,
+        k.name AS kunde
+    FROM dokumente d
+    LEFT JOIN kunden k ON k.id = d.kunde_id
+    ORDER BY d.id DESC
 """)
-dokumente = cur.fetchall()
 
-conn.close()
+daten = cur.fetchall()
+
+if not daten:
+    st.info("Noch keine Dokumente im Archiv.")
+    st.stop()
 
 # ---------------------------------------------------
-# FILTER
+# DATEN ALS TABELLE
 # ---------------------------------------------------
-st.subheader("🔍 Filter")
+df = pd.DataFrame(daten)
+df.columns = ["ID", "Typ", "Nummer", "Summe (€)", "PDF-Pfad", "Erstellt am", "Kunde"]
 
-col1, col2, col3 = st.columns(3)
+st.dataframe(df, use_container_width=True)
 
-with col1:
-    typ_filter = st.selectbox("Dokumenttyp", ["Alle", "rechnung", "angebot", "quittung"])
+st.write("---")
+st.subheader("📄 PDF herunterladen")
 
-with col2:
-    jahr_filter = st.selectbox(
-        "Jahr",
-        ["Alle"] + sorted(list({d["erstellt_am"][:4] for d in dokumente}))
+# ---------------------------------------------------
+# PDF DOWNLOAD-BEREICH
+# ---------------------------------------------------
+for row in daten:
+    nummer = row["Nummer"]
+    pdf_raw = row["PDF-Pfad"]
+
+    # PDF-Pfad fehlt → überspringen
+    if not pdf_raw or str(pdf_raw).strip() == "":
+        st.warning(f"⚠️ Kein PDF gespeichert für: {nummer}")
+        continue
+
+    pdf_path = Path(pdf_raw)
+
+    # Datei existiert nicht → Hinweis
+    if not pdf_path.exists():
+        st.error(f"PDF nicht gefunden: {pdf_path}")
+        continue
+
+    # PDF laden
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+
+    # Download-Button
+    st.download_button(
+        label=f"📄 PDF herunterladen ({nummer})",
+        data=pdf_bytes,
+        file_name=pdf_path.name,
+        mime="application/pdf",
+        key=f"download_{row['ID']}"
     )
 
-with col3:
-    kunde_filter = st.text_input("Kunden-ID (optional)")
-
-# ---------------------------------------------------
-# DATEN AUFBEREITEN
-# ---------------------------------------------------
-if not dokumente:
-    st.info("Noch keine Dokumente gespeichert.")
-else:
-    df = pd.DataFrame(dokumente)
-    df.columns = ["ID", "Typ", "Nummer", "Kunden-ID", "Summe (€)", "PDF-Pfad", "Erstellt am"]
-
-    # Filter anwenden
-    if typ_filter != "Alle":
-        df = df[df["Typ"] == typ_filter]
-
-    if jahr_filter != "Alle":
-        df = df[df["Erstellt am"].str.startswith(jahr_filter)]
-
-    if kunde_filter.strip() != "":
-        df = df[df["Kunden-ID"].astype(str) == kunde_filter.strip()]
-
-    st.dataframe(df, use_container_width=True)
-
-    st.write("---")
-
-    # ---------------------------------------------------
-    # PDF DOWNLOAD
-    # ---------------------------------------------------
-    st.subheader("📄 PDF herunterladen")
-
-    if len(df) == 0:
-        st.info("Keine Dokumente für den aktuellen Filter gefunden.")
-    else:
-        # Auswahl
-        auswahl = st.selectbox(
-            "Dokument auswählen",
-            df["Nummer"].tolist()
-        )
-
-        # Pfad ermitteln
-        row = df[df["Nummer"] == auswahl].iloc[0]
-        pdf_path = Path(row["PDF-Pfad"])
-
-        if not pdf_path.exists():
-            st.error("PDF-Datei wurde nicht gefunden.")
-        else:
-            with open(pdf_path, "rb") as f:
-                pdf_bytes = f.read()
-
-            st.download_button(
-                label=f"📥 PDF herunterladen ({auswahl})",
-                data=pdf_bytes,
-                file_name=f"{auswahl}.pdf",
-                mime="application/pdf"
-            )
+conn.close()
