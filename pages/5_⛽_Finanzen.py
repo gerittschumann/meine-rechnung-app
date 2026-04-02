@@ -16,7 +16,12 @@ st.title("⛽ Finanzen – Einnahmen & Ausgaben")
 # Daten laden
 # ---------------------------------------------------
 def load_finanzen():
-    return supabase.table("finanzen").select("*").order("datum", desc=True).execute().data
+    try:
+        data = supabase.table("finanzen").select("*").order("datum", desc=True).execute().data
+        return data if data else []
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Finanzen: {e}")
+        return []
 
 finanzen = load_finanzen()
 
@@ -34,15 +39,19 @@ with st.form("fin_form"):
     submit = st.form_submit_button("Speichern")
 
 if submit:
-    supabase.table("finanzen").insert({
-        "typ": typ.lower(),
-        "betrag": betrag,
-        "beschreibung": beschreibung,
-        "datum": datum.isoformat()
-    }).execute()
+    try:
+        supabase.table("finanzen").insert({
+            "typ": typ.lower(),
+            "betrag": betrag,
+            "beschreibung": beschreibung,
+            "datum": datum.isoformat()
+        }).execute()
 
-    st.success("Buchung gespeichert.")
-    st.experimental_rerun()
+        st.success("Buchung gespeichert.")
+        st.experimental_rerun()
+
+    except Exception as e:
+        st.error(f"Fehler beim Speichern: {e}")
 
 # ---------------------------------------------------
 # Auswertung
@@ -59,7 +68,11 @@ jahr_einnahmen = 0
 jahr_ausgaben = 0
 
 for f in finanzen:
-    d = datetime.date.fromisoformat(f["datum"])
+    try:
+        d = datetime.date.fromisoformat(f["datum"])
+    except:
+        continue
+
     if d >= monat_start:
         if f["typ"] == "einnahme":
             monat_einnahmen += f["betrag"]
@@ -95,15 +108,23 @@ if not finanzen:
     st.info("Noch keine Einträge vorhanden.")
 else:
     for f in finanzen:
-        with st.container():
-            farbe = "green" if f["typ"] == "einnahme" else "red"
-            st.markdown(f"### <span style='color:{farbe}'>{f['typ'].capitalize()}</span>", unsafe_allow_html=True)
-            st.write(f"💰 Betrag: **{f['betrag']:.2f} €**")
-            st.write(f"📝 {f.get('beschreibung', '-')}")
-            st.write(f"📅 {f['datum']}")
+        farbe = "green" if f["typ"] == "einnahme" else "red"
 
-            if st.button("🗑️ Löschen", key=f"del_{f['id']}"):
+        st.markdown(
+            f"### <span style='color:{farbe}'>{f['typ'].capitalize()}</span>",
+            unsafe_allow_html=True
+        )
+
+        st.write(f"💰 Betrag: **{f['betrag']:.2f} €**")
+        st.write(f"📝 {f.get('beschreibung', '-')}")
+        st.write(f"📅 {f['datum']}")
+
+        if st.button("🗑️ Löschen", key=f"del_{f['id']}"):
+            try:
                 supabase.table("finanzen").delete().eq("id", f["id"]).execute()
+                st.success("Eintrag gelöscht.")
                 st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Löschen: {e}")
 
-            st.markdown("---")
+        st.markdown("---")
