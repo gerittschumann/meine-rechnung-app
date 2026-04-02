@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
 import streamlit.components.v1 as components
+from streamlit_signature_pad import st_signature_pad
 
 from utils.supabase_utils import get_supabase
 from utils.pdf_utils import create_pdf, upload_pdf_to_storage, pdf_bytes_to_data_url
@@ -15,14 +16,21 @@ supabase = get_supabase()
 
 st.title("🧾 Quittung erstellen")
 
+# ---------------------------------------------------
 # Kunden laden
+# ---------------------------------------------------
 kunden = supabase.table("kunden").select("*").execute().data
 kunden_namen = {k["name"]: k["id"] for k in kunden} if kunden else {}
 
+# ---------------------------------------------------
 # Positionen laden
+# ---------------------------------------------------
 positionen = supabase.table("positionen").select("*").execute().data
 pos_dict = {p["bezeichnung"]: p for p in positionen} if positionen else {}
 
+# ---------------------------------------------------
+# Formular
+# ---------------------------------------------------
 st.subheader("Neue Quittung")
 
 with st.form("quittung_form"):
@@ -52,22 +60,27 @@ with st.form("quittung_form"):
 
     st.markdown(f"### 💰 Gesamtsumme: **{gesamt:.2f} €**")
 
-    st.markdown("### ✍️ Unterschrift")
-    unterschrift = st.canvas(
-        fill_color="rgba(0,0,0,1)",
-        stroke_width=3,
-        height=150,
-        width=400,
-        drawing_mode="freedraw",
-        key="quittung_sign"
+    st.markdown("### ✍️ Unterschrift (funktioniert perfekt auf dem Handy)")
+    unterschrift = st_signature_pad(
+        key="sign_quittung",
+        height=200,
+        pen_color="black",
+        background_color="white"
     )
 
     submitted = st.form_submit_button("Quittung speichern")
 
+# ---------------------------------------------------
+# Verarbeitung
+# ---------------------------------------------------
 if submitted:
+    if not ausgewaehlte_pos:
+        st.warning("Bitte mindestens eine Position auswählen.")
+        st.stop()
+
     kunde_id = kunden_namen[kunde_name]
 
-    # Quittung speichern
+    # 1. Quittung speichern
     doc = supabase.table("dokumente").insert({
         "typ": "quittung",
         "kunde_id": kunde_id,
@@ -77,21 +90,21 @@ if submitted:
 
     doc_id = doc.data[0]["id"]
 
-    # Quittungsnummer
+    # 2. Quittungsnummer generieren
     heute = datetime.datetime.now().strftime("%Y%m%d")
     nummer = f"Q-{heute}-{doc_id:04d}"
 
     supabase.table("dokumente").update({"nummer": nummer}).eq("id", doc_id).execute()
 
-    # Positionen speichern
+    # 3. Positionen speichern
     for p in pos_eintraege:
         p["dokument_id"] = doc_id
         supabase.table("dokument_positionen").insert(p).execute()
 
-    # Kundendaten laden
+    # 4. Kundendaten laden
     kunde_data = supabase.table("kunden").select("*").eq("id", kunde_id).execute().data[0]
 
-    # Positionen für PDF
+    # 5. Positionen für PDF
     pos_for_pdf = []
     for p in pos_eintraege:
         pos_info = supabase.table("positionen").select("*").eq("id", p["position_id"]).execute().data[0]
@@ -101,17 +114,19 @@ if submitted:
             "gesamtpreis": p["gesamtpreis"]
         })
 
-    # PDF erzeugen
+    # 6. PDF erzeugen
+    unterschrift_bytes = unterschrift if unterschrift else None
+
     pdf_bytes = create_pdf(
         title="Quittung",
         nummer=nummer,
         kunde=kunde_data,
         positionen=pos_for_pdf,
         summe=gesamt,
-        unterschrift_bytes=unterschrift.image_data if unterschrift else None
+        unterschrift_bytes=unterschrift_bytes
     )
 
-    # PDF hochladen
+    # 7. PDF hochladen
     bucket = "pdfs"
     path = f"quittungen/{nummer}.pdf"
     pdf_url = upload_pdf_to_storage(supabase, pdf_bytes, bucket, path)
@@ -120,7 +135,7 @@ if submitted:
 
     st.success(f"Quittung {nummer} gespeichert.")
 
-    # Vorschau
+    # 8. PDF Vorschau
     st.subheader("📄 PDF Vorschau")
     data_url = pdf_bytes_to_data_url(pdf_bytes)
 
