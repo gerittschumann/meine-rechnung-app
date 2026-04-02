@@ -1,7 +1,8 @@
 import streamlit as st
 import datetime
+import base64
+from io import BytesIO
 import streamlit.components.v1 as components
-from streamlit_signature_pad import st_signature_pad
 
 from utils.supabase_utils import get_supabase
 from utils.pdf_utils import create_pdf, upload_pdf_to_storage, pdf_bytes_to_data_url
@@ -17,14 +18,118 @@ supabase = get_supabase()
 st.title("🧾 Quittung erstellen")
 
 # ---------------------------------------------------
-# Kunden laden
+# SIGNATURE PAD (HTML CANVAS)
+# ---------------------------------------------------
+def signature_pad():
+    html_code = """
+    <style>
+        #sig-pad {
+            border: 2px solid black;
+            border-radius: 5px;
+            touch-action: none;
+        }
+    </style>
+
+    <canvas id="sig-pad" width="400" height="200"></canvas>
+    <br>
+    <button onclick="clearPad()">Löschen</button>
+    <button onclick="savePad()">Übernehmen</button>
+
+    <script>
+        var canvas = document.getElementById('sig-pad');
+        var ctx = canvas.getContext('2d');
+        var drawing = false;
+
+        function getPos(e) {
+            var rect = canvas.getBoundingClientRect();
+            return {
+                x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left,
+                y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top
+            };
+        }
+
+        canvas.addEventListener('mousedown', function(e) {
+            drawing = true;
+            var pos = getPos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        });
+
+        canvas.addEventListener('mousemove', function(e) {
+            if (drawing) {
+                var pos = getPos(e);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.stroke();
+            }
+        });
+
+        canvas.addEventListener('mouseup', function() {
+            drawing = false;
+        });
+
+        canvas.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            drawing = true;
+            var pos = getPos(e);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        });
+
+        canvas.addEventListener('touchmove', function(e) {
+            e.preventDefault();
+            if (drawing) {
+                var pos = getPos(e);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.stroke();
+            }
+        });
+
+        canvas.addEventListener('touchend', function() {
+            drawing = false;
+        });
+
+        function clearPad() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function savePad() {
+            const dataURL = canvas.toDataURL('image/png');
+            window.parent.postMessage({signature: dataURL}, "*");
+        }
+    </script>
+    """
+
+    components.html(html_code, height=300)
+
+    # Listener für die Unterschrift
+    sig = st.session_state.get("signature_image", None)
+
+    def _js_listener():
+        components.html(
+            """
+            <script>
+                window.addEventListener("message", (event) => {
+                    if (event.data.signature) {
+                        const pyMsg = event.data.signature;
+                        window.parent.postMessage({pySig: pyMsg}, "*");
+                    }
+                });
+            </script>
+            """,
+            height=0
+        )
+
+    _js_listener()
+
+    return sig
+
+
+# ---------------------------------------------------
+# Kunden & Positionen laden
 # ---------------------------------------------------
 kunden = supabase.table("kunden").select("*").execute().data
 kunden_namen = {k["name"]: k["id"] for k in kunden} if kunden else {}
 
-# ---------------------------------------------------
-# Positionen laden
-# ---------------------------------------------------
 positionen = supabase.table("positionen").select("*").execute().data
 pos_dict = {p["bezeichnung"]: p for p in positionen} if positionen else {}
 
@@ -60,15 +165,18 @@ with st.form("quittung_form"):
 
     st.markdown(f"### 💰 Gesamtsumme: **{gesamt:.2f} €**")
 
-    st.markdown("### ✍️ Unterschrift (funktioniert perfekt auf dem Handy)")
-    unterschrift = st_signature_pad(
-        key="sign_quittung",
-        height=200,
-        pen_color="black",
-        background_color="white"
-    )
+    st.markdown("### ✍️ Unterschrift")
+    st.info("Bitte unterschreiben und anschließend auf **Übernehmen** klicken.")
 
     submitted = st.form_submit_button("Quittung speichern")
+
+# ---------------------------------------------------
+# Unterschrift empfangen
+# ---------------------------------------------------
+if "pySig" in st.session_state:
+    st.session_state["signature_image"] = st.session_state["pySig"]
+
+sig = signature_pad()
 
 # ---------------------------------------------------
 # Verarbeitung
@@ -114,9 +222,13 @@ if submitted:
             "gesamtpreis": p["gesamtpreis"]
         })
 
-    # 6. PDF erzeugen
-    unterschrift_bytes = unterschrift if unterschrift else None
+    # 6. Unterschrift verarbeiten
+    unterschrift_bytes = None
+    if sig:
+        header, encoded = sig.split(",", 1)
+        unterschrift_bytes = base64.b64decode(encoded)
 
+    # 7. PDF erzeugen
     pdf_bytes = create_pdf(
         title="Quittung",
         nummer=nummer,
@@ -126,7 +238,7 @@ if submitted:
         unterschrift_bytes=unterschrift_bytes
     )
 
-    # 7. PDF hochladen
+    # 8. PDF hochladen
     bucket = "pdfs"
     path = f"quittungen/{nummer}.pdf"
     pdf_url = upload_pdf_to_storage(supabase, pdf_bytes, bucket, path)
@@ -135,7 +247,7 @@ if submitted:
 
     st.success(f"Quittung {nummer} gespeichert.")
 
-    # 8. PDF Vorschau
+    # 9. PDF Vorschau
     st.subheader("📄 PDF Vorschau")
     data_url = pdf_bytes_to_data_url(pdf_bytes)
 
