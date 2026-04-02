@@ -232,3 +232,18 @@ else:
             st.markdown(f"[📄 PDF öffnen]({d['pdf_url']})")
 
         st.markdown("---")
+from utils.pdf_generator import generate_pdf
+import streamlit as st
+
+pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
+
+st.subheader("📄 Vorschau")
+
+st.download_button(
+    label="PDF herunterladen",
+    data=pdf_bytes,
+    file_name=f"{dokument['nummer']}.pdf",
+    mime="application/pdf"
+)
+
+st.pdf(pdf_bytes)
