@@ -111,21 +111,9 @@ auswahl = st.selectbox(
 if auswahl != "Manuelle Eingabe":
     leistung = leistungsnamen[auswahl]
 
-    beschreibung = st.text_input(
-        "Beschreibung",
-        value=leistung["bezeichnung"]
-    )
-
-    preis = st.number_input(
-        "Preis (EUR)",
-        min_value=0.0,
-        value=float(leistung["preis"])
-    )
-
-    einheit = st.text_input(
-        "Einheit",
-        value=leistung.get("einheit", "")
-    )
+    beschreibung = st.text_input("Beschreibung", value=leistung["bezeichnung"])
+    preis = st.number_input("Preis (EUR)", min_value=0.0, value=float(leistung["preis"]))
+    einheit = st.text_input("Einheit", value=leistung.get("einheit", ""))
 
 else:
     beschreibung = st.text_input("Beschreibung")
@@ -166,6 +154,7 @@ st.subheader("📄 PDF erzeugen")
 if st.button("PDF erstellen & speichern"):
     pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
 
+    # PDF in Session speichern
     st.session_state["pdf_bytes"] = pdf_bytes
 
     file_name = f"{dokument['nummer']}.pdf"
