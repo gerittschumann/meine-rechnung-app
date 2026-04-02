@@ -1,88 +1,117 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-from utils.supabase_utils import supabase
-from utils.offline_utils import safe_insert
+import datetime
+from utils.supabase_utils import get_supabase
+
+st.set_page_config(
+    page_title="Fahrtenbuch",
+    page_icon="🚗",
+    layout="wide"
+)
+
+supabase = get_supabase()
 
 st.title("🚗 Fahrtenbuch")
 
+# ---------------------------------------------------
+# Fahrten laden
+# ---------------------------------------------------
 def load_fahrten():
-    data = supabase.table("fahrtenbuch").select("*").order("datum", desc=True).execute().data
-    df = pd.DataFrame(data)
+    try:
+        data = supabase.table("fahrtenbuch").select("*").order("datum", desc=True).execute().data
+        return data if data else []
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Fahrten: {e}")
+        return []
 
-    if df.empty:
-        df = pd.DataFrame(columns=["id", "datum", "start", "ziel", "zweck", "kilometer"])
+fahrten = load_fahrten()
 
-    for col in ["id", "datum", "start", "ziel", "zweck", "kilometer"]:
-        if col not in df.columns:
-            df[col] = None
+# ---------------------------------------------------
+# Neue Fahrt eintragen
+# ---------------------------------------------------
+st.subheader("➕ Neue Fahrt eintragen")
 
-    return df
+with st.form("fahrt_form"):
+    datum = st.date_input("Datum", datetime.date.today())
+    start = st.text_input("Startadresse")
+    ziel = st.text_input("Zieladresse")
+    kilometer = st.number_input("Gefahrene Kilometer", min_value=0.0, step=0.1)
 
-fahrten_df = load_fahrten()
+    submit = st.form_submit_button("Speichern")
 
-st.subheader("Neue Fahrt eintragen")
+if submit:
+    try:
+        supabase.table("fahrtenbuch").insert({
+            "datum": datum.isoformat(),
+            "start": start,
+            "ziel": ziel,
+            "kilometer": kilometer
+        }).execute()
 
-col1, col2 = st.columns(2)
+        st.success("Fahrt gespeichert.")
+        st.experimental_rerun()
+
+    except Exception as e:
+        st.error(f"Fehler beim Speichern: {e}")
+
+# ---------------------------------------------------
+# Auswertung
+# ---------------------------------------------------
+st.subheader("📊 Auswertung")
+
+heute = datetime.date.today()
+monat_start = heute.replace(day=1)
+jahr_start = heute.replace(month=1, day=1)
+
+monat_km = 0
+jahr_km = 0
+gesamt_km = 0
+
+for f in fahrten:
+    try:
+        d = datetime.date.fromisoformat(f["datum"])
+    except:
+        continue
+
+    km = f.get("kilometer", 0)
+    gesamt_km += km
+
+    if d >= monat_start:
+        monat_km += km
+
+    if d >= jahr_start:
+        jahr_km += km
+
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    datum = st.date_input("Datum", datetime.now())
-    start = st.text_input("Start")
-    ziel = st.text_input("Ziel")
+    st.metric("🚗 Kilometer (Monat)", f"{monat_km:.1f} km")
 
 with col2:
-    zweck = st.text_input("Zweck")
-    kilometer = st.number_input("Kilometer", min_value=0.0, step=0.1)
+    st.metric("📆 Kilometer (Jahr)", f"{jahr_km:.1f} km")
 
-if st.button("💾 Fahrt speichern"):
-    if start.strip() == "" or ziel.strip() == "":
-        st.error("Bitte Start und Ziel eingeben.")
-        st.stop()
+with col3:
+    st.metric("📍 Gesamt", f"{gesamt_km:.1f} km")
 
-    safe_insert("fahrtenbuch", {
-        "datum": datum.isoformat(),
-        "start": start,
-        "ziel": ziel,
-        "zweck": zweck,
-        "kilometer": kilometer
-    })
+# ---------------------------------------------------
+# Fahrtenliste
+# ---------------------------------------------------
+st.subheader("📋 Alle Fahrten")
 
-    st.success("Fahrt gespeichert (online oder offline)!")
-    st.rerun()
-
-st.subheader("Alle Fahrten")
-
-if fahrten_df.empty:
+if not fahrten:
     st.info("Noch keine Fahrten eingetragen.")
 else:
-    fahrten_df["datum"] = pd.to_datetime(fahrten_df["datum"], errors="coerce")
-    st.dataframe(fahrten_df)
+    for f in fahrten:
+        st.markdown(f"### 🚗 {f['datum']}")
+        st.write(f"**Start:** {f['start']}")
+        st.write(f"**Ziel:** {f['ziel']}")
+        st.write(f"**Kilometer:** {f['kilometer']} km")
 
-st.subheader("Kilometerpauschale")
+        if st.button("🗑️ Löschen", key=f"del_{f['id']}"):
+            try:
+                supabase.table("fahrtenbuch").delete().eq("id", f["id"]).execute()
+                st.success("Fahrt gelöscht.")
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Löschen: {e}")
 
-if fahrten_df.empty:
-    st.info("Keine Daten für Berechnung vorhanden.")
-else:
-    gesamt_km = fahrten_df["kilometer"].astype(float).sum()
-    pauschale = gesamt_km * 0.30
-
-    st.write(f"**Gesamtkilometer:** {gesamt_km:.1f} km")
-    st.write(f"**Kilometerpauschale (0,30 €):** {pauschale:.2f} €")
-
-st.subheader("Fahrt löschen")
-
-if fahrten_df.empty:
-    st.info("Keine Fahrten zum Löschen vorhanden.")
-else:
-    ids = fahrten_df["id"].tolist()
-    labels = [
-        f"{row['datum']} – {row['start']} → {row['ziel']} – {row['kilometer']} km"
-        for _, row in fahrten_df.iterrows()
-    ]
-
-    auswahl = st.selectbox("Fahrt auswählen", options=list(zip(ids, labels)), format_func=lambda x: x[1])
-
-    if st.button("🗑️ Fahrt löschen"):
-        supabase.table("fahrtenbuch").delete().eq("id", auswahl[0]).execute()
-        st.warning("Fahrt gelöscht!")
-        st.rerun()
+        st.markdown("---")
