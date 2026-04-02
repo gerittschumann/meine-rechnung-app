@@ -1,69 +1,137 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-from utils.supabase_utils import get_belege_df, get_positionen_df, upload_pdf_to_supabase
-from utils.pdf_utils import create_document
-from utils.layout_utils import whatsapp_link
-from utils.offline_utils import safe_insert
+import datetime
+import streamlit.components.v1 as components
 
-st.title("🧾 Quittung zu bestehender Rechnung")
+from utils.supabase_utils import get_supabase
+from utils.pdf_utils import create_pdf, upload_pdf_to_storage, pdf_bytes_to_data_url
 
-belege_df = get_belege_df()
-rechnungen = belege_df[belege_df["typ"] == "Rechnung"]
-
-if rechnungen.empty:
-    st.info("Es sind noch keine Rechnungen vorhanden.")
-    st.stop()
-
-auswahl = st.selectbox(
-    "Rechnung auswählen",
-    rechnungen["nr"].tolist()
+st.set_page_config(
+    page_title="Quittung",
+    page_icon="🧾",
+    layout="wide"
 )
 
-beleg = rechnungen[rechnungen["nr"] == auswahl].iloc[0]
-kunde = beleg["kunde"]
-adresse = beleg["adresse"]
-betrag = beleg["betrag"]
+supabase = get_supabase()
 
-st.write(f"**Kunde:** {kunde}")
-st.write(f"**Adresse:** {adresse}")
-st.write(f"**Rechnungsbetrag:** {betrag:.2f} €")
+st.title("🧾 Quittung erstellen")
 
-pos_df = get_positionen_df()
-posten = pos_df[pos_df["beleg_nr"] == auswahl].to_dict(orient="records")
+# Kunden laden
+kunden = supabase.table("kunden").select("*").execute().data
+kunden_namen = {k["name"]: k["id"] for k in kunden} if kunden else {}
 
-st.subheader("Positionen der Rechnung")
-st.table(pd.DataFrame(posten))
+# Positionen laden
+positionen = supabase.table("positionen").select("*").execute().data
+pos_dict = {p["bezeichnung"]: p for p in positionen} if positionen else {}
 
-quittungs_nr = f"{auswahl}Q"
-st.write(f"**Quittungsnummer:** {quittungs_nr}")
+st.subheader("Neue Quittung")
 
-if st.button("📄 Quittung erstellen & archivieren"):
-    pdf_bytes = create_document(
-        kunde,
-        adresse,
-        posten,
-        quittungs_nr,
-        "Quittung",
-        sign_img=None,
-        ist_vorschau=False
+with st.form("quittung_form"):
+    kunde_name = st.selectbox("Kunde auswählen", list(kunden_namen.keys()))
+    ausgewaehlte_pos = st.multiselect("Positionen", list(pos_dict.keys()))
+
+    gesamt = 0
+    pos_eintraege = []
+
+    for pos_name in ausgewaehlte_pos:
+        pos = pos_dict[pos_name]
+        menge = st.number_input(
+            f"Menge für {pos_name}",
+            min_value=1,
+            value=1,
+            key=f"menge_q_{pos_name}"
+        )
+        gesamtpreis = menge * pos["preis"]
+        gesamt += gesamtpreis
+
+        pos_eintraege.append({
+            "position_id": pos["id"],
+            "menge": menge,
+            "einzelpreis": pos["preis"],
+            "gesamtpreis": gesamtpreis
+        })
+
+    st.markdown(f"### 💰 Gesamtsumme: **{gesamt:.2f} €**")
+
+    st.markdown("### ✍️ Unterschrift")
+    unterschrift = st.canvas(
+        fill_color="rgba(0,0,0,1)",
+        stroke_width=3,
+        height=150,
+        width=400,
+        drawing_mode="freedraw",
+        key="quittung_sign"
     )
 
-    pdf_url = upload_pdf_to_supabase(pdf_bytes, f"{quittungs_nr}.pdf")
+    submitted = st.form_submit_button("Quittung speichern")
 
-    safe_insert("belege", {
-        "nr": quittungs_nr,
-        "kunde": kunde,
-        "adresse": adresse,
-        "datum": datetime.now().date().isoformat(),
-        "typ": "Quittung",
-        "betrag": betrag,
-        "stunden": None,
-        "pdf_url": pdf_url,
-    })
+if submitted:
+    kunde_id = kunden_namen[kunde_name]
 
-    st.success("Quittung erfolgreich erstellt und archiviert (online oder offline)!")
-    st.write("Download-Link:")
-    st.write(pdf_url)
+    # Quittung speichern
+    doc = supabase.table("dokumente").insert({
+        "typ": "quittung",
+        "kunde_id": kunde_id,
+        "summe": gesamt,
+        "erstellt_am": datetime.datetime.utcnow().isoformat()
+    }).execute()
 
-    st.markdown(f"[📲 Per WhatsApp senden]({whatsapp_link(pdf_url)})")
+    doc_id = doc.data[0]["id"]
+
+    # Quittungsnummer
+    heute = datetime.datetime.now().strftime("%Y%m%d")
+    nummer = f"Q-{heute}-{doc_id:04d}"
+
+    supabase.table("dokumente").update({"nummer": nummer}).eq("id", doc_id).execute()
+
+    # Positionen speichern
+    for p in pos_eintraege:
+        p["dokument_id"] = doc_id
+        supabase.table("dokument_positionen").insert(p).execute()
+
+    # Kundendaten laden
+    kunde_data = supabase.table("kunden").select("*").eq("id", kunde_id).execute().data[0]
+
+    # Positionen für PDF
+    pos_for_pdf = []
+    for p in pos_eintraege:
+        pos_info = supabase.table("positionen").select("*").eq("id", p["position_id"]).execute().data[0]
+        pos_for_pdf.append({
+            "bezeichnung": pos_info["bezeichnung"],
+            "menge": p["menge"],
+            "gesamtpreis": p["gesamtpreis"]
+        })
+
+    # PDF erzeugen
+    pdf_bytes = create_pdf(
+        title="Quittung",
+        nummer=nummer,
+        kunde=kunde_data,
+        positionen=pos_for_pdf,
+        summe=gesamt,
+        unterschrift_bytes=unterschrift.image_data if unterschrift else None
+    )
+
+    # PDF hochladen
+    bucket = "pdfs"
+    path = f"quittungen/{nummer}.pdf"
+    pdf_url = upload_pdf_to_storage(supabase, pdf_bytes, bucket, path)
+
+    supabase.table("dokumente").update({"pdf_url": pdf_url}).eq("id", doc_id).execute()
+
+    st.success(f"Quittung {nummer} gespeichert.")
+
+    # Vorschau
+    st.subheader("📄 PDF Vorschau")
+    data_url = pdf_bytes_to_data_url(pdf_bytes)
+
+    components.html(
+        f"<iframe src='{data_url}' width='100%' height='600px' style='border:none;'></iframe>",
+        height=620
+    )
+
+    st.download_button(
+        label="📥 PDF herunterladen",
+        data=pdf_bytes,
+        file_name=f"Quittung_{nummer}.pdf",
+        mime="application/pdf"
+    )
