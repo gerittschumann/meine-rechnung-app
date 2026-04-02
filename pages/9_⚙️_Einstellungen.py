@@ -1,82 +1,97 @@
 import streamlit as st
-import pandas as pd
-from utils.supabase_utils import supabase
+from utils.supabase_utils import get_supabase
+
+st.set_page_config(
+    page_title="Einstellungen",
+    page_icon="⚙️",
+    layout="wide"
+)
 
 st.title("⚙️ Einstellungen")
 
-# -----------------------------
-# EINSTELLUNGEN LADEN
-# -----------------------------
+supabase = get_supabase()
+
+# ---------------------------------------------------
+# Firmeninfos laden
+# ---------------------------------------------------
 def load_settings():
-    data = supabase.table("settings").select("*").execute().data
-    df = pd.DataFrame(data)
-
-    if df.empty:
-        return {
-            "firma": "",
-            "adresse": "",
-            "km_pauschale": 0.30,
-            "stundensatz": 0.0
-        }
-
-    row = df.iloc[0]
-
-    return {
-        "firma": row.get("firma", ""),
-        "adresse": row.get("adresse", ""),
-        "km_pauschale": row.get("km_pauschale", 0.30),
-        "stundensatz": row.get("stundensatz", 0.0)
-    }
+    try:
+        data = supabase.table("einstellungen").select("*").execute().data
+        if data:
+            return data[0]
+        return {}
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Einstellungen: {e}")
+        return {}
 
 settings = load_settings()
 
-# -----------------------------
-# FORMULAR
-# -----------------------------
-st.subheader("Firmendaten")
+# ---------------------------------------------------
+# Formular
+# ---------------------------------------------------
+st.subheader("🏢 Firmeninformationen")
 
-firma = st.text_input("Firmenname", value=settings["firma"])
-adresse = st.text_area("Adresse", value=settings["adresse"])
+with st.form("settings_form"):
+    firmenname = st.text_input("Firmenname", settings.get("firmenname", ""))
+    adresse = st.text_area("Adresse", settings.get("adresse", ""))
+    telefon = st.text_input("Telefon", settings.get("telefon", ""))
+    email = st.text_input("E-Mail", settings.get("email", ""))
+    agb = st.text_area("AGB", settings.get("agb", ""), height=200)
 
-st.subheader("Standardwerte")
+    submit = st.form_submit_button("Speichern")
 
-km_pauschale = st.number_input("Kilometerpauschale (€)", min_value=0.0, step=0.01, value=float(settings["km_pauschale"]))
-stundensatz = st.number_input("Stundensatz (€)", min_value=0.0, step=1.0, value=float(settings["stundensatz"]))
+if submit:
+    try:
+        if settings:
+            supabase.table("einstellungen").update({
+                "firmenname": firmenname,
+                "adresse": adresse,
+                "telefon": telefon,
+                "email": email,
+                "agb": agb
+            }).eq("id", settings["id"]).execute()
+        else:
+            supabase.table("einstellungen").insert({
+                "firmenname": firmenname,
+                "adresse": adresse,
+                "telefon": telefon,
+                "email": email,
+                "agb": agb
+            }).execute()
 
-# -----------------------------
-# SPEICHERN
-# -----------------------------
-if st.button("💾 Einstellungen speichern"):
+        st.success("Einstellungen gespeichert.")
+        st.experimental_rerun()
 
-    # Prüfen, ob es bereits einen Eintrag gibt
-    existing = supabase.table("settings").select("*").execute().data
+    except Exception as e:
+        st.error(f"Fehler beim Speichern: {e}")
 
-    if len(existing) == 0:
-        # Neu anlegen
-        supabase.table("settings").insert({
-            "firma": firma,
-            "adresse": adresse,
-            "km_pauschale": km_pauschale,
-            "stundensatz": stundensatz
-        }).execute()
-    else:
-        # Aktualisieren
-        supabase.table("settings").update({
-            "firma": firma,
-            "adresse": adresse,
-            "km_pauschale": km_pauschale,
-            "stundensatz": stundensatz
-        }).eq("id", existing[0]["id"]).execute()
+# ---------------------------------------------------
+# Logo Upload
+# ---------------------------------------------------
+st.subheader("🖼️ Firmenlogo")
 
-    st.success("Einstellungen gespeichert!")
-    st.rerun()
+uploaded_logo = st.file_uploader("Logo hochladen", type=["png", "jpg", "jpeg"])
 
-# -----------------------------
-# VORSCHAU
-# -----------------------------
-st.subheader("Vorschau")
+if uploaded_logo:
+    try:
+        file_bytes = uploaded_logo.read()
+        file_path = f"logos/{uploaded_logo.name}"
 
-st.write(f"**Firma:** {firma}")
-st.write(f"**Adresse:** {adresse}")
-st.write(f"**Kilometerpauschale:** {km_pauschale:.2f} €")
-st.write(f"**Stundensatz:** {stundensatz:.2f} €")
+        supabase.storage.from_("pdfs").upload(file_path, file_bytes)
+
+        logo_url = supabase.storage.from_("pdfs").get_public_url(file_path)
+
+        if settings:
+            supabase.table("einstellungen").update({"logo_url": logo_url}).eq("id", settings["id"]).execute()
+
+        st.success("Logo hochgeladen.")
+        st.image(logo_url, width=200)
+
+    except Exception as e:
+        st.error(f"Fehler beim Hochladen des Logos: {e}")
+
+# ---------------------------------------------------
+# Logo anzeigen
+# ---------------------------------------------------
+if settings.get("logo_url"):
+    st.image(settings["logo_url"], width=200)
