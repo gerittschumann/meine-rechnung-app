@@ -2,11 +2,12 @@ import streamlit as st
 from supabase import create_client, Client
 from utils.pdf_generator import generate_pdf
 import datetime
+import base64
 
 # Supabase Client
 supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-st.title("📄 Rechnung / Angebot")
+st.title("📄 Rechnung & Angebot")
 
 # ---------------------------------------------------
 # FUNKTION: Automatische Dokumentnummer erzeugen
@@ -15,7 +16,6 @@ def generate_document_number(typ):
     year = datetime.datetime.now().year
     prefix = "RE" if typ == "rechnung" else "AN"
 
-    # Letzte Nummer finden
     res = supabase.table("dokumente") \
         .select("nummer") \
         .like("nummer", f"{prefix}-{year}-%") \
@@ -36,13 +36,11 @@ def generate_document_number(typ):
 # ---------------------------------------------------
 typ = st.selectbox("Dokumenttyp", ["rechnung", "angebot"])
 
-# Kunden laden
 kunden = supabase.table("kunden").select("*").execute().data
 kunden_namen = {k["name"]: k["id"] for k in kunden}
 kunde_name = st.selectbox("Kunde", list(kunden_namen.keys()))
 kunde_id = kunden_namen[kunde_name]
 
-# Neues Dokument erstellen
 if st.button("➕ Neues Dokument erstellen"):
     nummer = generate_document_number(typ)
 
@@ -66,11 +64,9 @@ if not doc_id:
     st.stop()
 
 res_doc = supabase.table("dokumente").select("*").eq("id", doc_id).execute()
-if not res_doc.data:
-    st.error("Dokument wurde nicht gefunden.")
-    st.stop()
-
 dokument = res_doc.data[0]
+
+st.subheader(f"{dokument['typ'].capitalize()} {dokument['nummer']}")
 
 # ---------------------------------------------------
 # POSITIONEN LADEN
@@ -79,30 +75,84 @@ res_pos = supabase.table("positionen").select("*").eq("dokument_id", doc_id).exe
 positionen = res_pos.data if res_pos.data else []
 
 # ---------------------------------------------------
+# POSITIONEN ANZEIGEN & BEARBEITEN
+# ---------------------------------------------------
+st.subheader("🛒 Positionen")
+
+for pos in positionen:
+    col1, col2, col3, col4, col5 = st.columns([4, 1, 1, 1, 1])
+    col1.write(pos["beschreibung"])
+    col2.write(pos["menge"])
+    col3.write(f"{pos['preis']:.2f} EUR")
+    col4.write(f"{pos['gesamt']:.2f} EUR")
+
+    if col5.button("❌", key=f"del_{pos['id']}"):
+        supabase.table("positionen").delete().eq("id", pos["id"]).execute()
+        st.rerun()
+
+# ---------------------------------------------------
+# NEUE POSITION HINZUFÜGEN
+# ---------------------------------------------------
+st.subheader("➕ Position hinzufügen")
+
+beschreibung = st.text_input("Beschreibung")
+menge = st.number_input("Menge", min_value=1.0, value=1.0)
+preis = st.number_input("Preis (EUR)", min_value=0.0, value=0.0)
+
+if st.button("Position speichern"):
+    gesamt = menge * preis
+
+    supabase.table("positionen").insert({
+        "dokument_id": doc_id,
+        "beschreibung": beschreibung,
+        "menge": menge,
+        "preis": preis,
+        "gesamt": gesamt
+    }).execute()
+
+    st.rerun()
+
+# ---------------------------------------------------
 # EINSTELLUNGEN LADEN
 # ---------------------------------------------------
 res_set = supabase.table("einstellungen").select("*").execute()
-if not res_set.data:
-    st.error("Bitte zuerst die Einstellungen ausfüllen.")
-    st.stop()
-
 einstellungen = res_set.data[0]
 
 # ---------------------------------------------------
 # PDF ERZEUGEN
 # ---------------------------------------------------
-pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
+st.subheader("📄 PDF erzeugen")
+
+if st.button("PDF erstellen & speichern"):
+    pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
+
+    file_name = f"{dokument['nummer']}.pdf"
+
+    supabase.storage.from_("archiv").upload(
+        file_name,
+        pdf_bytes,
+        {"content-type": "application/pdf"}
+    )
+
+    public_url = supabase.storage.from_("archiv").get_public_url(file_name)
+
+    supabase.table("dokumente").update({
+        "pdf_url": public_url
+    }).eq("id", doc_id).execute()
+
+    st.success("PDF wurde gespeichert!")
 
 # ---------------------------------------------------
-# PDF VORSCHAU + DOWNLOAD
+# PDF ANZEIGEN / DOWNLOAD
 # ---------------------------------------------------
-st.subheader("📄 Vorschau")
+if dokument.get("pdf_url"):
+    st.subheader("📎 PDF")
 
-st.download_button(
-    label="PDF herunterladen",
-    data=pdf_bytes,
-    file_name=f"{dokument['nummer']}.pdf",
-    mime="application/pdf"
-)
+    st.markdown(f"[📄 PDF in neuem Tab öffnen]({dokument['pdf_url']})")
 
-st.pdf(pdf_bytes)
+    st.download_button(
+        label="PDF herunterladen",
+        data=base64.b64decode(base64.b64encode(pdf_bytes)),
+        file_name=f"{dokument['nummer']}.pdf",
+        mime="application/pdf"
+    )
