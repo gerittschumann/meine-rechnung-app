@@ -1,22 +1,15 @@
-from fpdf import FPDF
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from io import BytesIO
 import datetime
-import os
 
 def generate_pdf(dokument, positionen, einstellungen):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
 
-    # ---------------------------------------------------
-    # UNICODE FONT LADEN (ABSOLUTER PFAD!)
-    # ---------------------------------------------------
-    font_path = "/app/app/fonts/DejaVuSans.ttf"
-
-    if not os.path.exists(font_path):
-        raise FileNotFoundError(f"Font fehlt: {font_path}")
-
-    pdf.add_font("DejaVu", "", font_path, uni=True)
-    pdf.set_font("DejaVu", "", 12)
+    # Schriftart (ReportLab hat eingebaute Unicode-Fonts)
+    c.setFont("Helvetica", 12)
 
     # ---------------------------------------------------
     # EINSTELLUNGEN
@@ -26,55 +19,71 @@ def generate_pdf(dokument, positionen, einstellungen):
     plz = einstellungen.get("plz", "")
     ort = einstellungen.get("ort", "")
 
+    y = 800
+
     # ---------------------------------------------------
     # HEADER
     # ---------------------------------------------------
-    pdf.set_font("DejaVu", "", 16)
-    pdf.cell(0, 10, firma, ln=True)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(20*mm, y, firma)
+    y -= 10*mm
 
-    pdf.set_font("DejaVu", "", 12)
-    pdf.cell(0, 6, strasse, ln=True)
-    pdf.cell(0, 6, f"{plz} {ort}", ln=True)
-    pdf.ln(10)
+    c.setFont("Helvetica", 12)
+    c.drawString(20*mm, y, strasse)
+    y -= 6*mm
+    c.drawString(20*mm, y, f"{plz} {ort}")
+    y -= 15*mm
 
     # ---------------------------------------------------
     # DOKUMENTDATEN
     # ---------------------------------------------------
-    pdf.set_font("DejaVu", "", 14)
-    pdf.cell(0, 10, f"{dokument['typ'].capitalize()} {dokument['nummer']}", ln=True)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(20*mm, y, f"{dokument['typ'].capitalize()} {dokument['nummer']}")
+    y -= 10*mm
 
-    pdf.set_font("DejaVu", "", 12)
+    c.setFont("Helvetica", 12)
     datum = datetime.datetime.now().strftime("%d.%m.%Y")
-    pdf.cell(0, 6, f"Datum: {datum}", ln=True)
-    pdf.ln(5)
+    c.drawString(20*mm, y, f"Datum: {datum}")
+    y -= 15*mm
 
     # ---------------------------------------------------
     # POSITIONEN
     # ---------------------------------------------------
-    pdf.set_font("DejaVu", "", 12)
-    pdf.cell(100, 8, "Beschreibung")
-    pdf.cell(20, 8, "Menge")
-    pdf.cell(30, 8, "Preis")
-    pdf.cell(30, 8, "Gesamt", ln=True)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20*mm, y, "Beschreibung")
+    c.drawString(110*mm, y, "Menge")
+    c.drawString(130*mm, y, "Preis")
+    c.drawString(160*mm, y, "Gesamt")
+    y -= 8*mm
+
+    c.setFont("Helvetica", 12)
 
     gesamt_summe = 0
 
     for pos in positionen:
-        pdf.cell(100, 8, pos["beschreibung"])
-        pdf.cell(20, 8, str(pos["menge"]))
-        pdf.cell(30, 8, f"{pos['preis']:.2f} €")
-        pdf.cell(30, 8, f"{pos['gesamt']:.2f} €", ln=True)
+        c.drawString(20*mm, y, pos["beschreibung"])
+        c.drawString(110*mm, y, str(pos["menge"]))
+        c.drawString(130*mm, y, f"{pos['preis']:.2f} €")
+        c.drawString(160*mm, y, f"{pos['gesamt']:.2f} €")
+        y -= 8*mm
+
         gesamt_summe += pos["gesamt"]
 
-    pdf.ln(10)
+    y -= 10*mm
 
     # ---------------------------------------------------
     # SUMME
     # ---------------------------------------------------
-    pdf.set_font("DejaVu", "", 12)
-    pdf.cell(0, 10, f"Gesamtbetrag: {gesamt_summe:.2f} €", ln=True)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(20*mm, y, f"Gesamtbetrag: {gesamt_summe:.2f} €")
 
     # ---------------------------------------------------
-    # RÜCKGABE ALS BYTES
+    # PDF ABSCHLIESSEN
     # ---------------------------------------------------
-    return bytes(pdf.output(dest="S"))
+    c.showPage()
+    c.save()
+
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+
+    return pdf_bytes
