@@ -2,8 +2,8 @@ import streamlit as st
 from utils.db import get_connection
 from utils.pdf_generator import generate_pdf
 import pandas as pd
-import datetime
 import base64
+from streamlit_drawable_canvas import st_canvas
 
 st.set_page_config(
     page_title="🧾 Quittung erstellen",
@@ -68,7 +68,7 @@ st.write(f"**Quittungsnummer:** {quittungsnummer}")
 # ---------------------------------------------------
 st.subheader("✍️ Unterschrift erfassen")
 
-signature = st.canvas(
+signature = st_canvas(
     fill_color="rgba(0, 0, 0, 1)",
     stroke_width=2,
     stroke_color="#000000",
@@ -76,26 +76,53 @@ signature = st.canvas(
     height=200,
     width=600,
     drawing_mode="freedraw",
-    key="canvas",
+    key="canvas_quittung",
 )
 
+signature_png = None
 if signature.image_data is not None:
     signature_png = signature.image_data
-else:
-    signature_png = None
 
 # ---------------------------------------------------
-# QUITTUNG ERSTELLEN
+# PDF-VORSCHAU (NICHT SPEICHERN)
 # ---------------------------------------------------
 st.write("---")
-st.subheader("📄 Quittung erstellen")
+st.subheader("👁️ Vorschau anzeigen (ohne Speichern)")
 
-if st.button("Quittung generieren"):
+if st.button("Vorschau anzeigen"):
     if signature_png is None:
-        st.error("Bitte unterschreiben, bevor du die Quittung erstellst.")
+        st.error("Bitte unterschreiben, bevor du die Vorschau anzeigen kannst.")
         st.stop()
 
-    # Quittungs-Dokument speichern
+    pdf_bytes = generate_pdf(
+        {
+            "typ": "quittung",
+            "nummer": quittungsnummer,
+            "kunde": kunde,
+            "rechnung": rechnung,
+            "signatur": signature_png,
+            "preview": True
+        },
+        positionen,
+        {}
+    )
+
+    b64 = base64.b64encode(pdf_bytes).decode()
+    iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="900px"></iframe>'
+    st.markdown(iframe, unsafe_allow_html=True)
+
+# ---------------------------------------------------
+# QUITTUNG FINAL SPEICHERN
+# ---------------------------------------------------
+st.write("---")
+st.subheader("📄 Quittung final erstellen")
+
+if st.button("Quittung speichern"):
+    if signature_png is None:
+        st.error("Bitte unterschreiben, bevor du die Quittung speichern kannst.")
+        st.stop()
+
+    # Quittung speichern
     cur.execute("""
         INSERT INTO dokumente (typ, nummer, kunde_id, summe)
         VALUES ('quittung', ?, ?, ?)
@@ -106,22 +133,7 @@ if st.button("Quittung generieren"):
     cur.execute("SELECT id FROM dokumente ORDER BY id DESC LIMIT 1")
     quittung_id = cur.fetchone()["id"]
 
-    # PDF generieren
-    quittungs_daten = {
-        "typ": "quittung",
-        "nummer": quittungsnummer,
-        "kunde": kunde,
-        "rechnung": rechnung,
-        "signatur": signature_png
-    }
-
-    pdf_bytes = generate_pdf(quittungs_daten, positionen, {})
-
-    # PDF Download
-    b64 = base64.b64encode(pdf_bytes).decode()
-    href = f'<a href="data:application/pdf;base64,{b64}" download="{quittungsnummer}.pdf">📄 Quittung herunterladen</a>'
-    st.markdown(href, unsafe_allow_html=True)
-
     st.success("Quittung erfolgreich erstellt!")
+    st.balloons()
 
 conn.close()
