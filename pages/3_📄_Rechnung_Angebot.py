@@ -1,7 +1,8 @@
 import streamlit as st
 from utils.db import get_connection, generate_next_number
+from utils.pdf_generator import generate_pdf
 import pandas as pd
-import datetime
+import base64
 
 st.set_page_config(
     page_title="📄 Rechnung / Angebot",
@@ -103,7 +104,31 @@ summe = sum([p["gesamt"] for p in positionen]) if positionen else 0
 st.subheader(f"💶 Gesamtsumme: {summe:.2f} €")
 
 # ---------------------------------------------------
-# DOKUMENT ABSCHLIESSEN
+# PDF-VORSCHAU (NICHT SPEICHERN)
+# ---------------------------------------------------
+st.write("---")
+st.subheader("👁️ Vorschau anzeigen (ohne Speichern)")
+
+if st.button("Vorschau anzeigen"):
+    # PDF erzeugen (Preview-Modus)
+    pdf_bytes = generate_pdf(
+        {
+            "typ": dokument_typ,
+            "nummer": nummer,
+            "kunde_id": kunde_id,
+            "summe": summe,
+            "preview": True
+        },
+        positionen,
+        {}
+    )
+
+    b64 = base64.b64encode(pdf_bytes).decode()
+    pdf_iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="900px"></iframe>'
+    st.markdown(pdf_iframe, unsafe_allow_html=True)
+
+# ---------------------------------------------------
+# DOKUMENT ABSCHLIESSEN (SPEICHERN)
 # ---------------------------------------------------
 st.write("---")
 st.subheader(f"📄 {dokument_typ.capitalize()} final erstellen")
@@ -116,7 +141,7 @@ if st.button(f"{dokument_typ.capitalize()} speichern"):
     """, (dokument_typ, nummer, kunde_id, summe))
     conn.commit()
 
-    # ID des neuen Dokuments holen
+    # ID der neuen Rechnung holen
     cur.execute("SELECT id FROM dokumente ORDER BY id DESC LIMIT 1")
     dokument_id = cur.fetchone()["id"]
 
