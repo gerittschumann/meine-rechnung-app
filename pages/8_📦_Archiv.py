@@ -1,72 +1,58 @@
 import streamlit as st
 import pandas as pd
-from utils.supabase_utils import get_belege_df
+from utils.supabase_utils import get_supabase, get_belege_df
 
-st.title("📦 Archiv – Alle Belege")
+st.set_page_config(
+    page_title="Archiv",
+    page_icon="📦",
+    layout="wide"
+)
 
-# -----------------------------
-# BELEGE LADEN
-# -----------------------------
-df = get_belege_df()
+st.title("📦 Archiv – Alle Dokumente")
+
+# ---------------------------------------------------
+# Supabase Client
+# ---------------------------------------------------
+supabase = get_supabase()
+
+# ---------------------------------------------------
+# Belege laden
+# ---------------------------------------------------
+df = get_belege_df(supabase)
 
 if df.empty:
-    st.info("Noch keine Belege vorhanden.")
+    st.info("Noch keine Dokumente vorhanden.")
     st.stop()
 
-# Datum konvertieren
-df["datum"] = pd.to_datetime(df["datum"], errors="coerce")
+# ---------------------------------------------------
+# Daten vorbereiten
+# ---------------------------------------------------
+df["datum"] = pd.to_datetime(df["erstellt_am"], errors="coerce")
+df = df.sort_values("datum", ascending=False)
 
-# -----------------------------
-# FILTER
-# -----------------------------
-st.subheader("Filter")
+df["datum"] = df["datum"].dt.strftime("%d.%m.%Y")
 
-col1, col2, col3 = st.columns(3)
+# ---------------------------------------------------
+# Tabelle anzeigen
+# ---------------------------------------------------
+st.subheader("📄 Alle Dokumente")
 
-with col1:
-    typ_filter = st.selectbox("Typ", ["Alle", "Rechnung", "Angebot", "Quittung"])
+df_show = df[["nummer", "typ", "summe", "datum", "pdf_url"]]
 
-with col2:
-    kunde_filter = st.text_input("Kunde (optional)")
+st.dataframe(df_show, use_container_width=True)
 
-with col3:
-    sortierung = st.selectbox("Sortieren nach", ["Datum absteigend", "Datum aufsteigend"])
+# ---------------------------------------------------
+# PDF Links
+# ---------------------------------------------------
+st.subheader("📥 PDF Links")
 
-# Filter anwenden
-filtered = df.copy()
+for _, row in df_show.iterrows():
+    icon = "📄" if row["typ"] == "rechnung" else "📑" if row["typ"] == "angebot" else "🧾"
+    st.markdown(f"### {icon} {row['nummer']}")
+    st.write(f"💰 Summe: {row['summe']:.2f} €")
+    st.write(f"📅 Datum: {row['datum']}")
 
-if typ_filter != "Alle":
-    filtered = filtered[filtered["typ"] == typ_filter]
+    if row["pdf_url"]:
+        st.markdown(f"[PDF öffnen]({row['pdf_url']})")
 
-if kunde_filter.strip() != "":
-    filtered = filtered[filtered["kunde"].str.contains(kunde_filter, case=False, na=False)]
-
-# Sortierung
-if sortierung == "Datum absteigend":
-    filtered = filtered.sort_values("datum", ascending=False)
-else:
-    filtered = filtered.sort_values("datum", ascending=True)
-
-# -----------------------------
-# ANZEIGE
-# -----------------------------
-st.subheader("Belege")
-
-if filtered.empty:
-    st.info("Keine Belege für diese Filter gefunden.")
-else:
-    # PDF-Link anklickbar machen
-    filtered_display = filtered.copy()
-    filtered_display["PDF"] = filtered_display["pdf_url"].apply(lambda x: f"[Öffnen]({x})")
-
-    st.write(
-        filtered_display[["datum", "nr", "kunde", "typ", "betrag", "PDF"]]
-        .rename(columns={
-            "datum": "Datum",
-            "nr": "Nummer",
-            "kunde": "Kunde",
-            "typ": "Typ",
-            "betrag": "Betrag (€)"
-        })
-        .to_markdown(index=False)
-    )
+    st.markdown("---")
