@@ -2,7 +2,6 @@ import streamlit as st
 from supabase import create_client, Client
 from utils.pdf_generator import generate_pdf
 import datetime
-import base64
 
 # Supabase Client
 supabase: Client = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -167,7 +166,6 @@ st.subheader("📄 PDF erzeugen")
 if st.button("PDF erstellen & speichern"):
     pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
 
-    # PDF in Session speichern
     st.session_state["pdf_bytes"] = pdf_bytes
 
     file_name = f"{dokument['nummer']}.pdf"
