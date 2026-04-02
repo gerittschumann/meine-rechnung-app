@@ -87,3 +87,46 @@ else:
                         st.success("Kunde gelöscht.")
                         st.experimental_rerun()
                     except Exception as e:
+                        st.error(f"Fehler beim Löschen: {e}")
+
+            st.markdown("---")
+
+# ---------------------------------------------------
+# Bearbeitungsformular anzeigen
+# ---------------------------------------------------
+if "edit_id" in st.session_state:
+    edit_id = st.session_state["edit_id"]
+
+    st.subheader("✏️ Kunde bearbeiten")
+
+    # Kundendaten laden
+    kunde = supabase.table("kunden").select("*").eq("id", edit_id).execute().data[0]
+
+    with st.form("edit_form"):
+        name = st.text_input("Name", value=kunde["name"])
+        adresse = st.text_input("Adresse", value=kunde.get("adresse", ""))
+        email = st.text_input("E-Mail", value=kunde.get("email", ""))
+        telefon = st.text_input("Telefon", value=kunde.get("telefon", ""))
+
+        save_edit = st.form_submit_button("Änderungen speichern")
+        cancel_edit = st.form_submit_button("Abbrechen")
+
+        if save_edit:
+            try:
+                supabase.table("kunden").update({
+                    "name": name,
+                    "adresse": adresse,
+                    "email": email,
+                    "telefon": telefon
+                }).eq("id", edit_id).execute()
+
+                st.success("Kunde erfolgreich aktualisiert.")
+                del st.session_state["edit_id"]
+                st.experimental_rerun()
+
+            except Exception as e:
+                st.error(f"Fehler beim Aktualisieren: {e}")
+
+        if cancel_edit:
+            del st.session_state["edit_id"]
+            st.experimental_rerun()
