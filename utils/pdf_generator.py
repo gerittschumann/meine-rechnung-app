@@ -10,10 +10,10 @@ def generate_pdf(dokument, positionen, einstellungen):
     # ---------------------------------------------------
     # UNICODE FONT LADEN
     # ---------------------------------------------------
-    font_path = "/app/fonts/DejaVuSans.ttf"
+    font_path = "app/fonts/DejaVuSans.ttf"
 
     if not os.path.exists(font_path):
-        raise FileNotFoundError("Font fehlt: /app/fonts/DejaVuSans.ttf")
+        raise FileNotFoundError("Font fehlt: app/fonts/DejaVuSans.ttf")
 
     pdf.add_font("DejaVu", "", font_path, uni=True)
     pdf.set_font("DejaVu", "", 12)
