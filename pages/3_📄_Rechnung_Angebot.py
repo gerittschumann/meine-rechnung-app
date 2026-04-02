@@ -7,8 +7,10 @@ from io import BytesIO
 # ---------------------------------------------------
 # SUPABASE INITIALISIEREN
 # ---------------------------------------------------
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["key"]
+import os
+
+url = os.environ["SUPABASE_URL"]
+key = os.environ["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
 st.title("📄 Rechnung / Angebot erstellen")
