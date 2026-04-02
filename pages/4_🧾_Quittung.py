@@ -1,102 +1,127 @@
 import streamlit as st
-from utils.db import get_connection, generate_next_number, load_einstellungen
+from utils.db import get_connection
 from utils.pdf_generator import generate_pdf
-from pathlib import Path
+import pandas as pd
+import datetime
+import base64
 
 st.set_page_config(
-    page_title="🧾 Quittung",
+    page_title="🧾 Quittung erstellen",
     page_icon="🧾",
     layout="wide"
 )
 
-st.title("🧾 Quittung erstellen")
+st.title("🧾 Quittung zu einer bestehenden Rechnung erstellen")
 
 # ---------------------------------------------------
-# ARCHIV-PFAD (Railway Persistent Volume)
+# DB VERBINDUNG
 # ---------------------------------------------------
-ARCHIV_DIR = Path("/mnt/data/archiv")
-ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
+conn = get_connection()
+cur = conn.cursor()
 
 # ---------------------------------------------------
-# EINSTELLUNGEN LADEN
+# RECHNUNGEN LADEN
 # ---------------------------------------------------
-einstellungen = load_einstellungen()
-if not einstellungen:
-    st.warning("⚠️ Bitte zuerst Firmendaten unter 'Einstellungen' eintragen.")
-    einstellungen = {}
+cur.execute("""
+    SELECT d.id, d.nummer, k.name AS kunde
+    FROM dokumente d
+    LEFT JOIN kunden k ON d.kunde_id = k.id
+    WHERE d.typ = 'rechnung'
+    ORDER BY d.id DESC
+""")
+rechnungen = cur.fetchall()
+
+if not rechnungen:
+    st.warning("⚠️ Es existieren noch keine Rechnungen.")
+    st.stop()
+
+rechnungs_liste = [f"{r['id']} – {r['nummer']} – {r['kunde']}" for r in rechnungen]
+auswahl = st.selectbox("Rechnung auswählen", rechnungs_liste)
+
+rechnung_id = int(auswahl.split(" – ")[0])
 
 # ---------------------------------------------------
-# FORMULAR
+# RECHNUNGSDATEN LADEN
 # ---------------------------------------------------
-st.subheader("📄 Quittungsdaten")
+cur.execute("SELECT * FROM dokumente WHERE id = ?", (rechnung_id,))
+rechnung = cur.fetchone()
 
-kunde_id = st.number_input("Kunden-ID", min_value=1, step=1)
-betrag = st.number_input("Betrag (€)", min_value=0.0, value=0.0, step=0.5)
-beschreibung = st.text_area("Beschreibung / Zweck der Zahlung")
+cur.execute("SELECT * FROM positionen WHERE dokument_id = ?", (rechnung_id,))
+positionen = cur.fetchall()
+
+cur.execute("""
+    SELECT k.*
+    FROM kunden k
+    JOIN dokumente d ON d.kunde_id = k.id
+    WHERE d.id = ?
+""", (rechnung_id,))
+kunde = cur.fetchone()
 
 # ---------------------------------------------------
-# PDF VORSCHAU
+# QUITTUNGSNUMMER
 # ---------------------------------------------------
-if st.button("📄 PDF Vorschau erzeugen"):
-    dokument = {
+quittungsnummer = f"{rechnung['nummer']}-Q"
+st.write(f"**Quittungsnummer:** {quittungsnummer}")
+
+# ---------------------------------------------------
+# SIGNATURFELD
+# ---------------------------------------------------
+st.subheader("✍️ Unterschrift erfassen")
+
+signature = st.canvas(
+    fill_color="rgba(0, 0, 0, 1)",
+    stroke_width=2,
+    stroke_color="#000000",
+    background_color="#FFFFFF",
+    height=200,
+    width=600,
+    drawing_mode="freedraw",
+    key="canvas",
+)
+
+if signature.image_data is not None:
+    signature_png = signature.image_data
+else:
+    signature_png = None
+
+# ---------------------------------------------------
+# QUITTUNG ERSTELLEN
+# ---------------------------------------------------
+st.write("---")
+st.subheader("📄 Quittung erstellen")
+
+if st.button("Quittung generieren"):
+    if signature_png is None:
+        st.error("Bitte unterschreiben, bevor du die Quittung erstellst.")
+        st.stop()
+
+    # Quittungs-Dokument speichern
+    cur.execute("""
+        INSERT INTO dokumente (typ, nummer, kunde_id, summe)
+        VALUES ('quittung', ?, ?, ?)
+    """, (quittungsnummer, kunde["id"], rechnung["summe"]))
+    conn.commit()
+
+    # Neue Quittungs-ID holen
+    cur.execute("SELECT id FROM dokumente ORDER BY id DESC LIMIT 1")
+    quittung_id = cur.fetchone()["id"]
+
+    # PDF generieren
+    quittungs_daten = {
         "typ": "quittung",
-        "kunde_id": kunde_id,
-        "nummer": "VORSCHAU",
-        "summe": betrag
+        "nummer": quittungsnummer,
+        "kunde": kunde,
+        "rechnung": rechnung,
+        "signatur": signature_png
     }
 
-    positionen = [{
-        "beschreibung": beschreibung if beschreibung else "Zahlung",
-        "menge": 1,
-        "preis": betrag,
-        "gesamt": betrag
-    }]
+    pdf_bytes = generate_pdf(quittungs_daten, positionen, {})
 
-    pdf_bytes = generate_pdf(dokument, positionen, einstellungen)
-    st.session_state["pdf_bytes"] = pdf_bytes
+    # PDF Download
+    b64 = base64.b64encode(pdf_bytes).decode()
+    href = f'<a href="data:application/pdf;base64,{b64}" download="{quittungsnummer}.pdf">📄 Quittung herunterladen</a>'
+    st.markdown(href, unsafe_allow_html=True)
 
-# ---------------------------------------------------
-# PDF ANZEIGEN
-# ---------------------------------------------------
-if "pdf_bytes" in st.session_state:
-    st.write("### 📄 Vorschau")
-    st.download_button(
-        "PDF herunterladen",
-        data=st.session_state["pdf_bytes"],
-        file_name="quittung_vorschau.pdf"
-    )
+    st.success("Quittung erfolgreich erstellt!")
 
-    st.write("---")
-
-    # ---------------------------------------------------
-    # SPEICHERN
-    # ---------------------------------------------------
-    if st.button("💾 Quittung speichern"):
-        nummer = generate_next_number("quittung")
-
-        # PDF speichern im Railway Volume
-        pdf_path = ARCHIV_DIR / f"{nummer}.pdf"
-        with open(pdf_path, "wb") as f:
-            f.write(st.session_state["pdf_bytes"])
-
-        # In SQLite speichern
-        conn = get_connection()
-        cur = conn.cursor()
-
-        cur.execute("""
-            INSERT INTO dokumente (typ, nummer, kunde_id, pdf_path, summe)
-            VALUES (?, ?, ?, ?, ?)
-        """, ("quittung", nummer, kunde_id, str(pdf_path), betrag))
-
-        dokument_id = cur.lastrowid
-
-        # Position speichern
-        cur.execute("""
-            INSERT INTO positionen (dokument_id, beschreibung, menge, preis, gesamt)
-            VALUES (?, ?, ?, ?, ?)
-        """, (dokument_id, beschreibung if beschreibung else "Zahlung", 1, betrag, betrag))
-
-        conn.commit()
-        conn.close()
-
-        st.success(f"Quittung gespeichert! Nummer: {nummer}")
+conn.close()
