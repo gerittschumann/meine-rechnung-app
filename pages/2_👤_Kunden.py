@@ -19,7 +19,8 @@ def lade_kunden():
     cur.execute("SELECT * FROM kunden ORDER BY name ASC")
     rows = cur.fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]  # sqlite3.Row → dict
+
 
 def kunden_anlegen(name, adresse, plz, ort, email, telefon):
     conn = get_connection()
@@ -30,6 +31,7 @@ def kunden_anlegen(name, adresse, plz, ort, email, telefon):
     """, (name, adresse, plz, ort, email, telefon))
     conn.commit()
     conn.close()
+
 
 def kunden_aktualisieren(kunden_id, name, adresse, plz, ort, email, telefon):
     conn = get_connection()
@@ -47,12 +49,14 @@ def kunden_aktualisieren(kunden_id, name, adresse, plz, ort, email, telefon):
     conn.commit()
     conn.close()
 
+
 def kunden_loeschen(kunden_id):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM kunden WHERE id = ?", (kunden_id,))
     conn.commit()
     conn.close()
+
 
 # ---------------------------------------------------
 # KUNDENLISTE
