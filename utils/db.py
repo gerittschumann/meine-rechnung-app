@@ -46,9 +46,11 @@ def init_db():
         CREATE TABLE IF NOT EXISTS einstellungen (
             id INTEGER PRIMARY KEY,
             firma_name TEXT,
+            inhaber_name TEXT,
             firma_adresse TEXT,
             firma_plz TEXT,
             firma_ort TEXT,
+            firma_email TEXT,
             steuernummer TEXT,
             iban TEXT,
             bic TEXT,
