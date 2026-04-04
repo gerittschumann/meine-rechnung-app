@@ -49,7 +49,10 @@ def init_db():
             firma_ort TEXT,
             steuernummer TEXT,
             iban TEXT,
-            bic TEXT
+            bic TEXT,
+            text_rechnung TEXT,
+            text_angebot TEXT,
+            text_quittung TEXT
         )
     """)
 
@@ -138,9 +141,10 @@ def save_einstellungen(data: dict):
     cur.execute("""
         INSERT INTO einstellungen (
             id, firma_name, firma_adresse, firma_plz, firma_ort,
-            steuernummer, iban, bic
+            steuernummer, iban, bic,
+            text_rechnung, text_angebot, text_quittung
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data.get("firma_name", ""),
         data.get("firma_adresse", ""),
@@ -148,7 +152,10 @@ def save_einstellungen(data: dict):
         data.get("firma_ort", ""),
         data.get("steuernummer", ""),
         data.get("iban", ""),
-        data.get("bic", "")
+        data.get("bic", ""),
+        data.get("text_rechnung", ""),
+        data.get("text_angebot", ""),
+        data.get("text_quittung", "")
     ))
 
     conn.commit()
