@@ -34,7 +34,7 @@ cur.execute("""
         summe
     FROM dokumente
 """)
-docs = cur.fetchall()
+docs = [dict(row) for row in cur.fetchall()]
 
 # Fahrtenbuch pro Jahr
 cur.execute("""
@@ -44,7 +44,7 @@ cur.execute("""
         km_diff
     FROM fahrtenbuch
 """)
-fahrten = cur.fetchall()
+fahrten = [dict(row) for row in cur.fetchall()]
 
 conn.close()
 
@@ -97,7 +97,7 @@ st.write("---")
 st.subheader("📅 Monatsübersicht")
 
 # Dokumente pro Monat
-monate = [f"{i:02d}" for i in range(1, 12 + 1)]
+monate = [f"{i:02d}" for i in range(1, 13)]
 df_monate = pd.DataFrame({"Monat": monate})
 
 df_monate["Rechnungen (€)"] = df_monate["Monat"].apply(
