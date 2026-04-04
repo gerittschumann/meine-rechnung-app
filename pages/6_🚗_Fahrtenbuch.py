@@ -59,7 +59,7 @@ with st.form("fahrt_form"):
 st.subheader("📋 Bisherige Fahrten")
 
 cur.execute("SELECT * FROM fahrtenbuch ORDER BY datum DESC")
-fahrten = cur.fetchall()
+fahrten = [dict(row) for row in cur.fetchall()]
 
 if not fahrten:
     st.info("Noch keine Fahrten eingetragen.")
