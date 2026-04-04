@@ -6,24 +6,24 @@ st.title("⚙️ Einstellungen")
 # ---------------------------------------------------
 # EINSTELLUNGEN LADEN
 # ---------------------------------------------------
-einstellungen = load_einstellungen()
-
-# Falls noch keine Einstellungen existieren
-if not einstellungen:
-    einstellungen = {
-        "firma_name": "",
-        "firma_adresse": "",
-        "firma_plz": "",
-        "firma_ort": "",
-        "steuernummer": "",
-        "iban": "",
-        "bic": "",
-        "text_rechnung": "",
-        "text_angebot": "",
-        "text_quittung": "",
-        "inhaber_name": "",
-        "firma_email": ""
+if st.button("💾 Einstellungen speichern"):
+    data = {
+        "firma_name": firma_name,
+        "firma_adresse": firma_adresse,
+        "firma_plz": firma_plz,
+        "firma_ort": firma_ort,
+        "inhaber_name": inhaber_name,
+        "firma_email": firma_email,
+        "steuernummer": steuernummer,
+        "iban": iban,
+        "bic": bic,
+        "text_rechnung": text_rechnung,
+        "text_angebot": text_angebot,
+        "text_quittung": text_quittung
     }
+
+    save_einstellungen(data)
+    st.success("Einstellungen wurden gespeichert.")
 
 # ---------------------------------------------------
 # FIRMENDATEN
