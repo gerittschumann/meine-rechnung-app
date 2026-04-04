@@ -17,14 +17,14 @@ conn = get_connection()
 cur = conn.cursor()
 
 # Gesamtsummen
-cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'rechnung'")
-sum_rechnungen = cur.fetchone()["summe"]
+def lade_summe(typ):
+    cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = ?", (typ,))
+    row = cur.fetchone()
+    return row["summe"] if row else 0
 
-cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'quittung'")
-sum_quittungen = cur.fetchone()["summe"]
-
-cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'angebot'")
-sum_angebote = cur.fetchone()["summe"]
+sum_rechnungen = lade_summe("rechnung")
+sum_quittungen = lade_summe("quittung")
+sum_angebote = lade_summe("angebot")
 
 # Monatsübersicht
 cur.execute("""
@@ -37,7 +37,7 @@ cur.execute("""
     GROUP BY monat
     ORDER BY monat DESC
 """)
-monatsdaten = cur.fetchall()
+monatsdaten = [dict(row) for row in cur.fetchall()]
 
 # Gesamte Dokumentliste
 cur.execute("""
@@ -45,7 +45,7 @@ cur.execute("""
     FROM dokumente
     ORDER BY erstellt_am DESC
 """)
-dokumente = cur.fetchall()
+dokumente = [dict(row) for row in cur.fetchall()]
 
 conn.close()
 
@@ -75,7 +75,6 @@ if not monatsdaten:
 else:
     df_monate = pd.DataFrame(monatsdaten)
     df_monate.columns = ["Monat", "Rechnungen (€)", "Quittungen (€)", "Angebote (€)"]
-
     st.dataframe(df_monate, use_container_width=True)
 
 st.write("---")
@@ -90,5 +89,4 @@ if not dokumente:
 else:
     df_docs = pd.DataFrame(dokumente)
     df_docs.columns = ["ID", "Typ", "Nummer", "Kunden-ID", "Summe (€)", "Erstellt am"]
-
     st.dataframe(df_docs, use_container_width=True)
