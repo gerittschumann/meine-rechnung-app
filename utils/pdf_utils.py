@@ -1,4 +1,6 @@
 import io
+import base64
+import os
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
@@ -12,7 +14,7 @@ ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------
-# HILFSFUNKTION: FOOTER MIT FIRMENDATEN
+# FOOTER MIT FIRMENDATEN
 # ---------------------------------------------------
 def draw_footer(pdf):
     e = load_einstellungen()
@@ -190,3 +192,22 @@ def create_quittung_pdf(nummer, kunde, positionen, signatur_bytes, rechnung_numm
     pdf.save()
     buffer.seek(0)
     return buffer.getvalue()
+
+
+# ---------------------------------------------------
+# FEHLENDE FUNKTIONEN (WICHTIG!)
+# ---------------------------------------------------
+
+def pdf_bytes_to_data_url(pdf_bytes):
+    base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+    return f"data:application/pdf;base64,{base64_pdf}"
+
+
+def save_pdf_to_archiv(pdf_bytes, filename):
+    ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = ARCHIV_DIR / filename
+
+    with open(file_path, "wb") as f:
+        f.write(pdf_bytes)
+
+    return str(file_path)
