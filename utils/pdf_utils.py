@@ -1,120 +1,192 @@
-from fpdf import FPDF
-from io import BytesIO
-import base64
+import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from pathlib import Path
+from utils.db import load_einstellungen
 
-ARCHIV_DIR = Path("data/archiv")
+# Archiv-Ordner
+BASE_DIR = Path(__file__).resolve().parent.parent
+ARCHIV_DIR = BASE_DIR / "data" / "archiv"
 ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------
-# PDF ERZEUGEN (Alternative zu pdf_generator.py)
+# HILFSFUNKTION: FOOTER MIT FIRMENDATEN
 # ---------------------------------------------------
-def create_pdf(kunde, positionen, summe, dokument_typ, dokument_nr, firma=None, textblock=""):
-    """
-    Erzeugt ein PDF-Dokument (FPDF) und gibt es als Bytes zurück.
-    Wird für Vorschau oder Archivierung genutzt.
-    """
+def draw_footer(pdf):
+    e = load_einstellungen()
+    if not e:
+        return
 
-    kunde = dict(kunde)
-    firma = dict(firma) if firma else {}
+    footer_y = 40
+    pdf.setFont("Helvetica", 8)
 
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.drawString(40, footer_y + 20,
+                   f"Inhaber: {e.get('inhaber_name', '')} • E-Mail: {e.get('firma_email', '')}")
 
-    # ---------------------------------------------------
-    # FIRMENDATEN
-    # ---------------------------------------------------
-    pdf.set_font("Helvetica", size=12)
-    pdf.cell(0, 6, firma.get("firma_name", ""), ln=True)
-    pdf.cell(0, 6, firma.get("firma_adresse", ""), ln=True)
-    pdf.cell(0, 6, f"{firma.get('firma_plz', '')} {firma.get('firma_ort', '')}", ln=True)
+    pdf.drawString(40, footer_y + 10,
+                   f"{e.get('firma_name', '')} • {e.get('firma_adresse', '')} • "
+                   f"{e.get('firma_plz', '')} {e.get('firma_ort', '')}")
 
-    if firma.get("steuernummer"):
-        pdf.cell(0, 6, f"Steuernummer: {firma.get('steuernummer')}", ln=True)
+    pdf.drawString(40, footer_y,
+                   f"Steuernummer: {e.get('steuernummer', '')} • IBAN: {e.get('iban', '')} • BIC: {e.get('bic', '')}")
 
-    if firma.get("iban"):
-        pdf.cell(0, 6, f"IBAN: {firma.get('iban')}", ln=True)
 
-    if firma.get("bic"):
-        pdf.cell(0, 6, f"BIC: {firma.get('bic')}", ln=True)
+# ---------------------------------------------------
+# RECHNUNG PDF
+# ---------------------------------------------------
+def create_rechnung_pdf(nummer, kunde, positionen, signatur_bytes, text_unten):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
 
-    pdf.ln(10)
+    e = load_einstellungen()
 
-    # ---------------------------------------------------
-    # KUNDENDATEN
-    # ---------------------------------------------------
-    pdf.set_font("Helvetica", size=12)
-    pdf.cell(0, 6, kunde.get("name", ""), ln=True)
-    pdf.cell(0, 6, kunde.get("adresse", ""), ln=True)
-    pdf.cell(0, 6, f"{kunde.get('plz', '')} {kunde.get('ort', '')}", ln=True)
-    pdf.ln(10)
+    # Kopfbereich
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(40, height - 50, f"Rechnung {nummer}")
 
-    # ---------------------------------------------------
-    # TITEL
-    # ---------------------------------------------------
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, f"{dokument_typ} {dokument_nr}", ln=True)
-    pdf.ln(5)
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(40, height - 80, f"Kunde: {kunde['name']}")
+    pdf.drawString(40, height - 95, f"Adresse: {kunde['adresse']}")
+    pdf.drawString(40, height - 110, f"PLZ / Ort: {kunde['plz']} {kunde['ort']}")
 
-    # ---------------------------------------------------
-    # TEXTBLOCK
-    # ---------------------------------------------------
-    if textblock:
-        pdf.set_font("Helvetica", size=12)
-        pdf.multi_cell(0, 6, textblock)
-        pdf.ln(5)
+    # Positionen
+    y = height - 150
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(40, y, "Beschreibung")
+    pdf.drawString(350, y, "Preis (€)")
+    pdf.setFont("Helvetica", 10)
 
-    # ---------------------------------------------------
-    # POSITIONEN
-    # ---------------------------------------------------
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Leistungen:", ln=True)
-    pdf.set_font("Helvetica", size=12)
+    y -= 20
+    gesamt = 0
 
     for pos in positionen:
-        pos = dict(pos)
-        bez = pos.get("bezeichnung", "")
-        menge = pos.get("menge", 1)
-        preis = pos.get("preis", 0.0)
-        gesamt = menge * preis
+        pdf.drawString(40, y, pos["beschreibung"])
+        pdf.drawString(350, y, f"{pos['gesamt']:.2f}")
+        gesamt += pos["gesamt"]
+        y -= 20
 
-        pdf.cell(0, 6, f"{bez} – {menge} × {preis:.2f} € = {gesamt:.2f} €", ln=True)
+    # Summe
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(40, y - 10, f"Gesamtbetrag: {gesamt:.2f} €")
 
-    pdf.ln(5)
+    # Standardtext
+    if text_unten:
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(40, y - 40, text_unten)
 
-    # ---------------------------------------------------
-    # SUMME
-    # ---------------------------------------------------
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, f"Gesamtbetrag: {summe:.2f} €", ln=True)
+    # Signatur
+    if signatur_bytes:
+        try:
+            pdf.drawImage(ImageReader(io.BytesIO(signatur_bytes)),
+                          350, y - 120, width=120, height=60, mask="auto")
+            pdf.drawString(350, y - 130, "Unterschrift")
+        except Exception:
+            pass
 
-    # ---------------------------------------------------
-    # PDF ALS BYTES
-    # ---------------------------------------------------
-    return pdf.output(dest="S").encode("latin1")
+    # Footer
+    draw_footer(pdf)
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------
-# PDF ALS DATA-URL (für Browser-Vorschau)
+# ANGEBOT PDF
 # ---------------------------------------------------
-def pdf_bytes_to_data_url(pdf_bytes: bytes) -> str:
-    b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-    return f"data:application/pdf;base64,{b64}"
+def create_angebot_pdf(nummer, kunde, positionen, text_unten):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    e = load_einstellungen()
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(40, height - 50, f"Angebot {nummer}")
+
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(40, height - 80, f"Kunde: {kunde['name']}")
+    pdf.drawString(40, height - 95, f"Adresse: {kunde['adresse']}")
+    pdf.drawString(40, height - 110, f"PLZ / Ort: {kunde['plz']} {kunde['ort']}")
+
+    y = height - 150
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(40, y, "Beschreibung")
+    pdf.drawString(350, y, "Preis (€)")
+    pdf.setFont("Helvetica", 10)
+
+    y -= 20
+    gesamt = 0
+
+    for pos in positionen:
+        pdf.drawString(40, y, pos["beschreibung"])
+        pdf.drawString(350, y, f"{pos['gesamt']:.2f}")
+        gesamt += pos["gesamt"]
+        y -= 20
+
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(40, y - 10, f"Gesamtbetrag: {gesamt:.2f} €")
+
+    if text_unten:
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(40, y - 40, text_unten)
+
+    draw_footer(pdf)
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------
-# PDF IM ARCHIV SPEICHERN
+# QUITTUNG PDF
 # ---------------------------------------------------
-def save_pdf_to_archiv(pdf_bytes: bytes, nummer: str) -> Path:
-    """
-    Speichert ein PDF im Archiv (/mnt/data/archiv).
-    """
-    ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
-    path = ARCHIV_DIR / f"{nummer}.pdf"
+def create_quittung_pdf(nummer, kunde, positionen, signatur_bytes, rechnung_nummer):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
 
-    with open(path, "wb") as f:
-        f.write(pdf_bytes)
+    e = load_einstellungen()
 
-    return path
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(40, height - 50, f"Quittung {nummer}")
+
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(40, height - 80, f"Kunde: {kunde['name']}")
+    pdf.drawString(40, height - 95, f"Rechnung zugehörig: {rechnung_nummer}")
+
+    y = height - 140
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(40, y, "Beschreibung")
+    pdf.drawString(350, y, "Preis (€)")
+    pdf.setFont("Helvetica", 10)
+
+    y -= 20
+    gesamt = 0
+
+    for pos in positionen:
+        pdf.drawString(40, y, pos["beschreibung"])
+        pdf.drawString(350, y, f"{pos['gesamt']:.2f}")
+        gesamt += pos["gesamt"]
+        y -= 20
+
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(40, y - 10, f"Gesamtbetrag: {gesamt:.2f} €")
+
+    # Signatur
+    if signatur_bytes:
+        try:
+            pdf.drawImage(ImageReader(io.BytesIO(signatur_bytes)),
+                          350, y - 120, width=120, height=60, mask="auto")
+            pdf.drawString(350, y - 130, "Unterschrift")
+        except Exception:
+            pass
+
+    draw_footer(pdf)
+
+    pdf.save()
+    buffer.seek(0)
+    return buffer.getvalue()
