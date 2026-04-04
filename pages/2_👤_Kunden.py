@@ -26,9 +26,10 @@ def kunden_anlegen(name, adresse, plz, ort, email, telefon):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO kunden (name, adresse, plz, ort, email, telefon)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (name, adresse, plz, ort, email, telefon))
+    INSERT INTO kunden (name, adresse, plz, ort, email, telefon)
+    VALUES (%s, %s, %s, %s, %s, %s)
+""", (name, adresse, plz, ort, email, telefon))
+
     conn.commit()
     conn.close()
 
