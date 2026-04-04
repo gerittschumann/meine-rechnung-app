@@ -1,52 +1,43 @@
-import sqlite3
-from pathlib import Path
+import os
 import datetime
+import psycopg2
+import psycopg2.extras
 
 # ---------------------------------------------------
-# SPEICHERORT: Projektordner (Render löscht NICHTS, solange Datei nicht im Repo liegt)
+# VERBINDUNG HERSTELLEN (NEON POSTGRES)
 # ---------------------------------------------------
-DB_PATH = Path("data/database.db")
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+NEON_DB_URL = os.getenv("NEON_DB_URL")
 
 
-# ---------------------------------------------------
-# VERBINDUNG HERSTELLEN
-# ---------------------------------------------------
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    if not NEON_DB_URL:
+        raise RuntimeError("NEON_DB_URL ist nicht gesetzt (Render Environment Variable prüfen).")
+    conn = psycopg2.connect(NEON_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
 
 
 # ---------------------------------------------------
-# DATENBANK INITIALISIEREN (nur wenn DB NICHT existiert)
+# DATENBANK INITIALISIEREN
 # ---------------------------------------------------
 def init_db():
-    if DB_PATH.exists():
-        return  # NICHT überschreiben!
-
     conn = get_connection()
     cur = conn.cursor()
 
-    # ---------------------------------------------------
     # KUNDEN
-    # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS kunden (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT,
             adresse TEXT,
             plz TEXT,
             ort TEXT,
             email TEXT,
             telefon TEXT,
-            erstellt_am TEXT DEFAULT CURRENT_TIMESTAMP
+            erstellt_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # ---------------------------------------------------
     # EINSTELLUNGEN
-    # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS einstellungen (
             id INTEGER PRIMARY KEY,
@@ -65,27 +56,23 @@ def init_db():
         )
     """)
 
-    # ---------------------------------------------------
     # DOKUMENTE
-    # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS dokumente (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             typ TEXT,
             nummer TEXT,
             kunde_id INTEGER,
             pdf_path TEXT,
             summe REAL,
-            erstellt_am TEXT DEFAULT CURRENT_TIMESTAMP
+            erstellt_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # ---------------------------------------------------
     # POSITIONEN
-    # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS positionen (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             dokument_id INTEGER,
             beschreibung TEXT,
             menge REAL,
@@ -94,12 +81,10 @@ def init_db():
         )
     """)
 
-    # ---------------------------------------------------
     # FAHRTENBUCH
-    # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS fahrtenbuch (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             datum TEXT,
             start TEXT,
             ziel TEXT,
@@ -107,21 +92,19 @@ def init_db():
             km_start REAL,
             km_ende REAL,
             km_diff REAL,
-            erstellt_am TEXT DEFAULT CURRENT_TIMESTAMP
+            erstellt_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # ---------------------------------------------------
     # LEISTUNGSKATALOG
-    # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS leistungen (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT,
             preis REAL,
             einheit TEXT,
             beschreibung TEXT,
-            erstellt_am TEXT DEFAULT CURRENT_TIMESTAMP
+            erstellt_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -153,7 +136,7 @@ def save_einstellungen(data: dict):
             firma_email, steuernummer, iban, bic,
             text_rechnung, text_angebot, text_quittung
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         data.get("firma_name", ""),
         data.get("inhaber_name", ""),
@@ -182,17 +165,17 @@ def generate_next_number(typ: str) -> str:
 
     cur.execute("""
         SELECT nummer FROM dokumente
-        WHERE typ = ?
+        WHERE typ = %s
         ORDER BY id DESC LIMIT 1
     """, (typ,))
 
     last = cur.fetchone()
 
-    if last:
+    if last and last.get("nummer"):
         try:
             num = int(last["nummer"].split("-")[-1])
             next_num = num + 1
-        except:
+        except Exception:
             next_num = 1
     else:
         next_num = 1
