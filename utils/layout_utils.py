@@ -10,7 +10,7 @@ def section_title(title: str, icon: str = "📌"):
     Einheitlicher Abschnittstitel.
     """
     st.markdown(f"### {icon} {title}")
-    st.markdown("---")
+    st.markdown("<hr>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------
@@ -29,6 +29,7 @@ def info_box(title: str, content: str, icon: str = "ℹ️"):
             background-color: #e8f1ff;
             border-left: 6px solid #2b6cb0;
             margin-bottom: 15px;
+            line-height: 1.5;
         ">
             <strong>{icon} {title}</strong><br>
             {content}
@@ -50,6 +51,7 @@ def warning_box(title: str, content: str, icon: str = "⚠️"):
             background-color: #fff4d6;
             border-left: 6px solid #d69e2e;
             margin-bottom: 15px;
+            line-height: 1.5;
         ">
             <strong>{icon} {title}</strong><br>
             {content}
@@ -71,6 +73,7 @@ def success_box(title: str, content: str, icon: str = "✅"):
             background-color: #e6ffed;
             border-left: 6px solid #38a169;
             margin-bottom: 15px;
+            line-height: 1.5;
         ">
             <strong>{icon} {title}</strong><br>
             {content}
@@ -92,7 +95,6 @@ def card(title: str = "", icon: str = "📄"):
 
     with card("Kundendaten", "🧍"):
         st.write("Inhalt...")
-
     """
     st.markdown(
         """
@@ -153,4 +155,4 @@ def page_title(title: str, icon: str):
     Einheitlicher Seitentitel.
     """
     st.markdown(f"# {icon} {title}")
-    st.markdown("---")
+    st.markdown("<hr>", unsafe_allow_html=True)
