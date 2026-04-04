@@ -1,10 +1,5 @@
+import streamlit as st
 import os
-st.write("DB_HOST:", os.getenv("DB_HOST"))
-st.write("DB_NAME:", os.getenv("DB_NAME"))
-st.write("DB_USER:", os.getenv("DB_USER"))
-st.write("DB_PASSWORD:", os.getenv("DB_PASSWORD"))
-st.write("DB_PORT:", os.getenv("DB_PORT"))
-
 import streamlit as st
 from utils.db import get_connection
 
