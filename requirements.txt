@@ -9,4 +9,4 @@ setuptools
 wheel
 streamlit-drawable-canvas
 psycopg2-binary
-
+streamlit-option-menu
