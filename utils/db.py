@@ -2,7 +2,9 @@ import sqlite3
 from pathlib import Path
 import datetime
 
-DB_PATH = Path("database.db")
+DB_PATH = Path("data/database.db")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
 
 
 # ---------------------------------------------------
