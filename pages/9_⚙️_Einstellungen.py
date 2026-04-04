@@ -1,116 +1,93 @@
 import streamlit as st
-from utils.db import get_connection
-
-st.set_page_config(
-    page_title="⚙️ Einstellungen",
-    page_icon="⚙️",
-    layout="wide"
-)
+from utils.db import load_einstellungen, save_einstellungen
 
 st.title("⚙️ Einstellungen")
-
-st.write("""
-Hier kannst du deine Firmendaten und die Standardtexte für:
-- Rechnungen
-- Angebote
-- Quittungen  
-festlegen und speichern.
-""")
-
-# ---------------------------------------------------
-# DB VERBINDUNG
-# ---------------------------------------------------
-conn = get_connection()
-cur = conn.cursor()
 
 # ---------------------------------------------------
 # EINSTELLUNGEN LADEN
 # ---------------------------------------------------
-cur.execute("SELECT * FROM einstellungen WHERE id = 1")
-row = cur.fetchone()
-row = dict(row) if row else {}
+einstellungen = load_einstellungen()
 
-# Felder aus DB oder leer
-firma_name = row.get("firma_name", "")
-firma_adresse = row.get("firma_adresse", "")
-firma_plz = row.get("firma_plz", "")
-firma_ort = row.get("firma_ort", "")
-steuernummer = row.get("steuernummer", "")
-iban = row.get("iban", "")
-bic = row.get("bic", "")
-
-# Neue Felder (falls noch nicht existieren)
-text_rechnung = row.get("text_rechnung", "")
-text_angebot = row.get("text_angebot", "")
-text_quittung = row.get("text_quittung", "")
+# Falls noch keine Einstellungen existieren
+if not einstellungen:
+    einstellungen = {
+        "firma_name": "",
+        "firma_adresse": "",
+        "firma_plz": "",
+        "firma_ort": "",
+        "steuernummer": "",
+        "iban": "",
+        "bic": "",
+        "text_rechnung": "",
+        "text_angebot": "",
+        "text_quittung": "",
+        "inhaber_name": "",
+        "firma_email": ""
+    }
 
 # ---------------------------------------------------
-# FORMULAR
+# FIRMENDATEN
 # ---------------------------------------------------
-st.subheader("🏢 Firmendaten")
+st.header("🏢 Firmendaten")
 
-with st.form("einstellungen_form"):
-    firma_name = st.text_input("Firmenname", value=firma_name)
-    firma_adresse = st.text_input("Adresse", value=firma_adresse)
-    firma_plz = st.text_input("PLZ", value=firma_plz)
-    firma_ort = st.text_input("Ort", value=firma_ort)
-    steuernummer = st.text_input("Steuernummer", value=steuernummer)
-    iban = st.text_input("IBAN", value=iban)
-    bic = st.text_input("BIC", value=bic)
+firma_name = st.text_input("Firmenname", value=einstellungen.get("firma_name", ""))
+firma_adresse = st.text_input("Adresse", value=einstellungen.get("firma_adresse", ""))
+firma_plz = st.text_input("PLZ", value=einstellungen.get("firma_plz", ""))
+firma_ort = st.text_input("Ort", value=einstellungen.get("firma_ort", ""))
 
-    st.write("---")
-    st.subheader("📝 Standardtexte für Dokumente")
+st.write("---")
 
-    text_rechnung = st.text_area(
-        "Text für Rechnungen",
-        value=text_rechnung,
-        placeholder="z. B.: Bitte begleichen Sie den Betrag innerhalb von 7 Tagen."
-    )
+# ---------------------------------------------------
+# INHABER / KONTAKT
+# ---------------------------------------------------
+st.header("👤 Inhaber / Kontakt")
 
-    text_angebot = st.text_area(
-        "Text für Angebote",
-        value=text_angebot,
-        placeholder="z. B.: Vielen Dank für Ihre Anfrage."
-    )
+inhaber_name = st.text_input("Vor- und Nachname", value=einstellungen.get("inhaber_name", ""))
+firma_email = st.text_input("E-Mail-Adresse", value=einstellungen.get("firma_email", ""))
 
-    text_quittung = st.text_area(
-        "Text für Quittungen",
-        value=text_quittung,
-        placeholder="z. B.: Vielen Dank für Ihren Auftrag, ich habe den Betrag dankend erhalten."
-    )
+st.write("---")
 
-    submitted = st.form_submit_button("Speichern")
+# ---------------------------------------------------
+# STEUER / BANK
+# ---------------------------------------------------
+st.header("💼 Steuer- & Bankdaten")
 
-    if submitted:
-        # Tabelle erweitern, falls Felder fehlen
-        cur.execute("PRAGMA table_info(einstellungen)")
-        columns = [c[1] for c in cur.fetchall()]
+steuernummer = st.text_input("Steuernummer", value=einstellungen.get("steuernummer", ""))
+iban = st.text_input("IBAN", value=einstellungen.get("iban", ""))
+bic = st.text_input("BIC", value=einstellungen.get("bic", ""))
 
-        if "text_rechnung" not in columns:
-            cur.execute("ALTER TABLE einstellungen ADD COLUMN text_rechnung TEXT")
-        if "text_angebot" not in columns:
-            cur.execute("ALTER TABLE einstellungen ADD COLUMN text_angebot TEXT")
-        if "text_quittung" not in columns:
-            cur.execute("ALTER TABLE einstellungen ADD COLUMN text_quittung TEXT")
+st.write("---")
 
-        # Alte Einstellungen löschen
-        cur.execute("DELETE FROM einstellungen WHERE id = 1")
+# ---------------------------------------------------
+# STANDARD TEXTE
+# ---------------------------------------------------
+st.header("📝 Standardtexte")
 
-        # Neue speichern
-        cur.execute("""
-            INSERT INTO einstellungen (
-                id, firma_name, firma_adresse, firma_plz, firma_ort,
-                steuernummer, iban, bic,
-                text_rechnung, text_angebot, text_quittung
-            )
-            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            firma_name, firma_adresse, firma_plz, firma_ort,
-            steuernummer, iban, bic,
-            text_rechnung, text_angebot, text_quittung
-        ))
+text_rechnung = st.text_area("Text für Rechnungen", value=einstellungen.get("text_rechnung", ""))
+text_angebot = st.text_area("Text für Angebote", value=einstellungen.get("text_angebot", ""))
+text_quittung = st.text_area("Text für Quittungen", value=einstellungen.get("text_quittung", ""))
 
-        conn.commit()
-        st.success("Einstellungen gespeichert!")
+st.write("---")
 
-conn.close()
+# ---------------------------------------------------
+# SPEICHERN
+# ---------------------------------------------------
+if st.button("💾 Einstellungen speichern"):
+    data = {
+        "firma_name": firma_name,
+        "firma_adresse": firma_adresse,
+        "inhaber_name": inhaber_name
+        "firma_plz": firma_plz,
+        "firma_ort": firma_ort,
+        "firma_email": firma_email,
+        "steuernummer": steuernummer,
+        "iban": iban,
+        "bic": bic,
+        "text_rechnung": text_rechnung,
+        "text_angebot": text_angebot,
+        "text_quittung": text_quittung,
+        
+    }
+
+    save_einstellungen(data)
+    st.success("Einstellungen wurden gespeichert.")
