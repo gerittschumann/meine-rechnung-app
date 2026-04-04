@@ -1,119 +1,162 @@
 import streamlit as st
-import sqlite3
-from utils.db import get_connection
+import datetime
+import pandas as pd
+from utils.db import get_connection, generate_next_number
 from utils.pdf_generator import generate_pdf
+from utils.pdf_utils import pdf_bytes_to_data_url, save_pdf_to_archiv
 
-st.set_page_config(page_title="📄 Rechnung / Angebot", page_icon="📄")
+st.set_page_config(
+    page_title="📄 Rechnung / Angebot",
+    page_icon="📄",
+    layout="wide"
+)
 
-st.title("📄 Rechnung / Angebot erstellen")
+st.title("📄 Rechnung & Angebot erstellen")
 
 # ---------------------------------------------------
-# DATENBANKVERBINDUNG
+# DB VERBINDUNG
 # ---------------------------------------------------
 conn = get_connection()
-conn.row_factory = sqlite3.Row
 cur = conn.cursor()
 
-# ---------------------------------------------------
-# KUNDEN LADEN
-# ---------------------------------------------------
+# Kunden laden
 cur.execute("SELECT * FROM kunden ORDER BY name ASC")
 kunden = [dict(row) for row in cur.fetchall()]
 
-# ---------------------------------------------------
-# FIRMENDATEN LADEN (aus einstellungen)
-# ---------------------------------------------------
-cur.execute("SELECT * FROM einstellungen WHERE id = 1")
-firma_row = cur.fetchone()
-firma = dict(firma_row) if firma_row else {}
-
-# ---------------------------------------------------
-# LEISTUNGSKATALOG LADEN
-# ---------------------------------------------------
+# Leistungen laden
 cur.execute("SELECT * FROM leistungen ORDER BY name ASC")
-leistungs_katalog = [dict(row) for row in cur.fetchall()]
+leistungen = [dict(row) for row in cur.fetchall()]
+
+# Einstellungen laden
+cur.execute("SELECT * FROM einstellungen WHERE id = 1")
+einstellungen = dict(cur.fetchone()) if cur.fetchone() else {}
 
 # ---------------------------------------------------
-# FORMULAR: DOKUMENTTYP
+# FORMULAR
 # ---------------------------------------------------
+st.subheader("🧾 Dokumentdaten")
+
 dokument_typ = st.selectbox("Dokumenttyp", ["Rechnung", "Angebot"])
+nummer = generate_next_number("rechnung" if dokument_typ == "Rechnung" else "angebot")
+datum = st.date_input("Datum", datetime.date.today())
+
+kunde = st.selectbox("Kunde auswählen", kunden, format_func=lambda x: x["name"])
+
+st.write("---")
+st.subheader("🛒 Positionen hinzufügen")
+
+if "warenkorb" not in st.session_state:
+    st.session_state.warenkorb = []
+
+# Leistung auswählen
+auswahl = st.selectbox("Leistung auswählen", leistungen, format_func=lambda x: x["name"])
+
+menge = st.number_input("Menge", min_value=1.0, step=1.0)
+preis = st.number_input("Preis überschreiben (optional)", min_value=0.0, step=0.5)
+
+if st.button("➕ Position hinzufügen"):
+    st.session_state.warenkorb.append({
+        "bezeichnung": auswahl["name"],
+        "menge": menge,
+        "preis": preis if preis > 0 else auswahl["preis"]
+    })
+    st.success("Position hinzugefügt.")
 
 # ---------------------------------------------------
-# FORMULAR: KUNDE
+# WARENKORB ANZEIGEN
 # ---------------------------------------------------
-kunden_namen = [k["name"] for k in kunden]
-kunde_auswahl = st.selectbox("Kunde auswählen", kunden_namen)
+st.write("---")
+st.subheader("📦 Warenkorb")
 
-kunde = next((k for k in kunden if k["name"] == kunde_auswahl), None)
+if not st.session_state.warenkorb:
+    st.info("Noch keine Positionen hinzugefügt.")
+else:
+    df = pd.DataFrame(st.session_state.warenkorb)
+    df["Summe"] = df["menge"] * df["preis"]
+    st.dataframe(df, use_container_width=True)
 
-# ---------------------------------------------------
-# FORMULAR: NUMMER & DATUM
-# ---------------------------------------------------
-nummer = st.text_input("Nummer", "")
-datum = st.date_input("Datum")
+    gesamt = df["Summe"].sum()
+    st.metric("Gesamtbetrag", f"{gesamt:.2f} €")
 
-# ---------------------------------------------------
-# FORMULAR: TEXTBLOCK
-# ---------------------------------------------------
-text_rechnung = st.text_area("Textblock (optional)", "")
-
-# ---------------------------------------------------
-# FORMULAR: LEISTUNGEN
-# ---------------------------------------------------
-st.subheader("Leistungen hinzufügen")
-
-positionen = []
-for i in range(1, 11):
-    col1, col2, col3 = st.columns([4, 1, 2])
-
-    with col1:
-        bez = st.selectbox(
-            f"Leistung {i}",
-            [""] + [l["name"] for l in leistungs_katalog],
-            key=f"bez_{i}"
-        )
-
-    with col2:
-        menge = st.number_input(f"Menge {i}", min_value=0.0, value=0.0, key=f"menge_{i}")
-
-    with col3:
-        preis = st.number_input(f"Preis {i}", min_value=0.0, value=0.0, key=f"preis_{i}")
-
-    if bez and menge > 0:
-        # passende Leistung aus Katalog holen
-        leistung = next((l for l in leistungs_katalog if l["name"] == bez), None)
-
-        positionen.append({
-            "bezeichnung": bez,
-            "menge": menge,
-            "preis": preis if preis > 0 else (leistung["preis"] if leistung else 0)
-        })
+    if st.button("🗑️ Warenkorb leeren"):
+        st.session_state.warenkorb = []
+        st.experimental_rerun()
 
 # ---------------------------------------------------
-# PDF ERZEUGEN
+# PDF VORSCHAU
 # ---------------------------------------------------
-if st.button("PDF erzeugen"):
-    if not kunde:
-        st.error("Bitte einen Kunden auswählen.")
-    else:
-        eintrag = {
-            "dokument_typ": dokument_typ,
-            "nummer": nummer,
-            "datum": str(datum),
-            "text_rechnung": text_rechnung
-        }
+st.write("---")
+st.subheader("📄 PDF Vorschau")
 
+if st.session_state.warenkorb:
+    if st.button("📄 Vorschau anzeigen"):
         pdf_bytes = generate_pdf(
-            eintrag,
+            {
+                "dokument_typ": dokument_typ,
+                "nummer": nummer,
+                "datum": datum.isoformat(),
+                "text_rechnung": einstellungen.get("text_rechnung", "") if dokument_typ == "Rechnung" else einstellungen.get("text_angebot", "")
+            },
             kunde,
-            firma,
-            positionen
+            einstellungen,
+            st.session_state.warenkorb
         )
 
-        st.success("PDF erfolgreich erzeugt!")
-        st.download_button(
-            label="PDF herunterladen",
-            data=pdf_bytes,
-            file_name=f"{dokument_typ}_{nummer}.pdf",
-            mime="application/pdf"
+        pdf_url = pdf_bytes_to_data_url(pdf_bytes)
+        st.markdown(f'<iframe src="{pdf_url}" width="100%" height="600px"></iframe>', unsafe_allow_html=True)
+
+# ---------------------------------------------------
+# SPEICHERN
+# ---------------------------------------------------
+st.write("---")
+st.subheader("💾 Dokument speichern")
+
+if st.session_state.warenkorb:
+    if st.button("💾 Speichern & PDF archivieren"):
+        pdf_bytes = generate_pdf(
+            {
+                "dokument_typ": dokument_typ,
+                "nummer": nummer,
+                "datum": datum.isoformat(),
+                "text_rechnung": einstellungen.get("text_rechnung", "") if dokument_typ == "Rechnung" else einstellungen.get("text_angebot", "")
+            },
+            kunde,
+            einstellungen,
+            st.session_state.warenkorb
         )
+
+        # PDF archivieren
+        pdf_path = save_pdf_to_archiv(pdf_bytes, nummer)
+
+        # Dokument speichern
+        cur.execute("""
+            INSERT INTO dokumente (typ, nummer, kunde_id, pdf_path, summe)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            dokument_typ.lower(),
+            nummer,
+            kunde["id"],
+            str(pdf_path),
+            gesamt
+        ))
+        conn.commit()
+
+        # Positionen speichern
+        for pos in st.session_state.warenkorb:
+            cur.execute("""
+                INSERT INTO positionen (dokument_id, beschreibung, menge, preis, gesamt)
+                VALUES ((SELECT id FROM dokumente WHERE nummer = ?), ?, ?, ?, ?)
+            """, (
+                nummer,
+                pos["bezeichnung"],
+                pos["menge"],
+                pos["preis"],
+                pos["menge"] * pos["preis"]
+            ))
+        conn.commit()
+
+        st.success("Dokument gespeichert & PDF archiviert.")
+        st.session_state.warenkorb = []
+        st.experimental_rerun()
+
+conn.close()
