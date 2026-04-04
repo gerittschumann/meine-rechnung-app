@@ -3,7 +3,7 @@ from io import BytesIO
 import base64
 from pathlib import Path
 
-ARCHIV_DIR = Path("/mnt/data/archiv")
+ARCHIV_DIR = Path("data/archiv")
 ARCHIV_DIR.mkdir(parents=True, exist_ok=True)
 
 
