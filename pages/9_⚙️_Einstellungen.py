@@ -1,6 +1,5 @@
 import streamlit as st
 from utils.db import get_connection
-import pandas as pd
 
 st.set_page_config(
     page_title="⚙️ Einstellungen",
@@ -29,19 +28,21 @@ cur = conn.cursor()
 # ---------------------------------------------------
 cur.execute("SELECT * FROM einstellungen WHERE id = 1")
 row = cur.fetchone()
+row = dict(row) if row else {}
 
-firma_name = row["firma_name"] if row else ""
-firma_adresse = row["firma_adresse"] if row else ""
-firma_plz = row["firma_plz"] if row else ""
-firma_ort = row["firma_ort"] if row else ""
-steuernummer = row["steuernummer"] if row else ""
-iban = row["iban"] if row else ""
-bic = row["bic"] if row else ""
+# Felder aus DB oder leer
+firma_name = row.get("firma_name", "")
+firma_adresse = row.get("firma_adresse", "")
+firma_plz = row.get("firma_plz", "")
+firma_ort = row.get("firma_ort", "")
+steuernummer = row.get("steuernummer", "")
+iban = row.get("iban", "")
+bic = row.get("bic", "")
 
-# Neue Felder:
-text_rechnung = row["text_rechnung"] if row and "text_rechnung" in row.keys() else ""
-text_angebot = row["text_angebot"] if row and "text_angebot" in row.keys() else ""
-text_quittung = row["text_quittung"] if row and "text_quittung" in row.keys() else ""
+# Neue Felder (falls noch nicht existieren)
+text_rechnung = row.get("text_rechnung", "")
+text_angebot = row.get("text_angebot", "")
+text_quittung = row.get("text_quittung", "")
 
 # ---------------------------------------------------
 # FORMULAR
