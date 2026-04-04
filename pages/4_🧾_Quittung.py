@@ -1,7 +1,6 @@
 import streamlit as st
 from utils.db import get_connection
 from utils.pdf_generator import generate_pdf
-import pandas as pd
 import base64
 from streamlit_drawable_canvas import st_canvas
 
@@ -23,13 +22,13 @@ cur = conn.cursor()
 # RECHNUNGEN LADEN
 # ---------------------------------------------------
 cur.execute("""
-    SELECT d.id, d.nummer, k.name AS kunde
+    SELECT d.id, d.nummer, d.summe, k.name AS kunde, k.id AS kunde_id
     FROM dokumente d
     LEFT JOIN kunden k ON d.kunde_id = k.id
     WHERE d.typ = 'rechnung'
     ORDER BY d.id DESC
 """)
-rechnungen = cur.fetchall()
+rechnungen = [dict(r) for r in cur.fetchall()]
 
 if not rechnungen:
     st.warning("⚠️ Es existieren noch keine Rechnungen.")
@@ -39,23 +38,27 @@ rechnungs_liste = [f"{r['id']} – {r['nummer']} – {r['kunde']}" for r in rech
 auswahl = st.selectbox("Rechnung auswählen", rechnungs_liste)
 
 rechnung_id = int(auswahl.split(" – ")[0])
+rechnung = next(r for r in rechnungen if r["id"] == rechnung_id)
 
 # ---------------------------------------------------
-# RECHNUNGSDATEN LADEN
+# POSITIONEN LADEN
 # ---------------------------------------------------
-cur.execute("SELECT * FROM dokumente WHERE id = ?", (rechnung_id,))
-rechnung = cur.fetchone()
-
 cur.execute("SELECT * FROM positionen WHERE dokument_id = ?", (rechnung_id,))
-positionen = cur.fetchall()
+positionen = [dict(p) for p in cur.fetchall()]
 
-cur.execute("""
-    SELECT k.*
-    FROM kunden k
-    JOIN dokumente d ON d.kunde_id = k.id
-    WHERE d.id = ?
-""", (rechnung_id,))
-kunde = cur.fetchone()
+# ---------------------------------------------------
+# KUNDENDATEN LADEN
+# ---------------------------------------------------
+cur.execute("SELECT * FROM kunden WHERE id = ?", (rechnung["kunde_id"],))
+kunde_row = cur.fetchone()
+kunde = dict(kunde_row) if kunde_row else {}
+
+# ---------------------------------------------------
+# FIRMENDATEN LADEN
+# ---------------------------------------------------
+cur.execute("SELECT * FROM einstellungen WHERE id = 1")
+firma_row = cur.fetchone()
+firma = dict(firma_row) if firma_row else {}
 
 # ---------------------------------------------------
 # QUITTUNGSNUMMER
@@ -79,12 +82,10 @@ signature = st_canvas(
     key="canvas_quittung",
 )
 
-signature_png = None
-if signature.image_data is not None:
-    signature_png = signature.image_data
+signature_png = signature.image_data if signature.image_data is not None else None
 
 # ---------------------------------------------------
-# PDF-VORSCHAU (NICHT SPEICHERN)
+# PDF-VORSCHAU
 # ---------------------------------------------------
 st.write("---")
 st.subheader("👁️ Vorschau anzeigen (ohne Speichern)")
@@ -94,17 +95,19 @@ if st.button("Vorschau anzeigen"):
         st.error("Bitte unterschreiben, bevor du die Vorschau anzeigen kannst.")
         st.stop()
 
+    eintrag = {
+        "dokument_typ": "Quittung",
+        "nummer": quittungsnummer,
+        "datum": "",
+        "text_rechnung": "Quittung zur Rechnung " + rechnung["nummer"],
+        "signatur": signature_png
+    }
+
     pdf_bytes = generate_pdf(
-        {
-            "typ": "quittung",
-            "nummer": quittungsnummer,
-            "kunde": kunde,
-            "rechnung": rechnung,
-            "signatur": signature_png,
-            "preview": True
-        },
-        positionen,
-        {}
+        eintrag,
+        kunde,
+        firma,
+        positionen
     )
 
     b64 = base64.b64encode(pdf_bytes).decode()
@@ -122,16 +125,11 @@ if st.button("Quittung speichern"):
         st.error("Bitte unterschreiben, bevor du die Quittung speichern kannst.")
         st.stop()
 
-    # Quittung speichern
     cur.execute("""
         INSERT INTO dokumente (typ, nummer, kunde_id, summe)
         VALUES ('quittung', ?, ?, ?)
     """, (quittungsnummer, kunde["id"], rechnung["summe"]))
     conn.commit()
-
-    # Neue Quittungs-ID holen
-    cur.execute("SELECT id FROM dokumente ORDER BY id DESC LIMIT 1")
-    quittung_id = cur.fetchone()["id"]
 
     st.success("Quittung erfolgreich erstellt!")
     st.balloons()
