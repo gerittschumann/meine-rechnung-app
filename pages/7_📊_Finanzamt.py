@@ -16,6 +16,7 @@ Hier findest du eine komprimierte Übersicht deiner relevanten Daten für das Fi
 - Einnahmen aus Quittungen
 - Angebote (unverbindlich)
 - Fahrtenbuch-Kilometer
+- Empfohlene Steuer-Rücklage
 - Export als CSV
 """)
 
@@ -35,7 +36,7 @@ cur.execute("""
     GROUP BY jahr
     ORDER BY jahr DESC
 """)
-umsatz_jahre = cur.fetchall()
+umsatz_jahre = [dict(row) for row in cur.fetchall()]
 
 # ---------------------------------------------------
 # FAHRTENBUCH
@@ -48,7 +49,7 @@ cur.execute("""
     GROUP BY jahr
     ORDER BY jahr DESC
 """)
-fahrten_jahre = cur.fetchall()
+fahrten_jahre = [dict(row) for row in cur.fetchall()]
 
 # ---------------------------------------------------
 # DETAIL-DOKUMENTE FÜR EXPORT
@@ -63,7 +64,7 @@ cur.execute("""
     FROM dokumente
     ORDER BY erstellt_am DESC
 """)
-dokumente = cur.fetchall()
+dokumente = [dict(row) for row in cur.fetchall()]
 
 conn.close()
 
@@ -80,8 +81,47 @@ else:
     st.dataframe(df_umsatz, use_container_width=True)
 
 # ---------------------------------------------------
+# STEUER-RÜCKLAGE BERECHNEN
+# ---------------------------------------------------
+st.write("---")
+st.subheader("💶 Empfohlene Steuer-Rücklage")
+
+if umsatz_jahre:
+    # Gesamte steuerpflichtige Einnahmen (Rechnungen + Quittungen)
+    gesamt_rechnungen = sum([u["rechnungen"] for u in umsatz_jahre])
+    gesamt_quittungen = sum([u["quittungen"] for u in umsatz_jahre])
+    steuerpflichtig = gesamt_rechnungen + gesamt_quittungen
+
+    st.write(f"**Steuerpflichtige Einnahmen gesamt:** {steuerpflichtig:,.2f} €"
+             .replace(",", "X").replace(".", ",").replace("X", "."))
+
+    # Steuersatz einstellbar
+    steuersatz = st.slider("Steuersatz für Rücklage (%)", 10, 40, 25)
+
+    ruecklage = steuerpflichtig * (steuersatz / 100)
+    monatlich = ruecklage / 12
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            f"Empfohlene Rücklage ({steuersatz} %)",
+            f"{ruecklage:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+
+    with col2:
+        st.metric(
+            "Monatliche Rücklage",
+            f"{monatlich:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+
+else:
+    st.info("Noch keine Einnahmen vorhanden.")
+
+# ---------------------------------------------------
 # JAHRESÜBERSICHT FAHRTEN
 # ---------------------------------------------------
+st.write("---")
 st.subheader("🚗 Jahresübersicht – Fahrtenbuch (Kilometer)")
 
 if not fahrten_jahre:
@@ -94,6 +134,7 @@ else:
 # ---------------------------------------------------
 # DETAIL-EXPORT FÜR STEUERBERATER
 # ---------------------------------------------------
+st.write("---")
 st.subheader("📄 Detaildaten – Export für Steuerberater / Finanzamt")
 
 if not dokumente:
