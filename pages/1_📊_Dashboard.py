@@ -16,31 +16,43 @@ st.write("""
 - Gesamtsummen
 """)
 
+# ---------------------------------------------------
+# DATENBANKVERBINDUNG
+# ---------------------------------------------------
 conn = get_connection()
 cur = conn.cursor()
 
-# Kunden zählen
+# ---------------------------------------------------
+# KUNDEN ZÄHLEN
+# ---------------------------------------------------
 cur.execute("SELECT COUNT(*) AS anzahl FROM kunden")
-kunden_count = cur.fetchone()["anzahl"]
+row = cur.fetchone()
+kunden_count = row["anzahl"] if row else 0
 
-# Dokumente zählen
+# ---------------------------------------------------
+# DOKUMENTE ZÄHLEN
+# ---------------------------------------------------
 cur.execute("SELECT COUNT(*) AS anzahl FROM dokumente")
-dokumente_count = cur.fetchone()["anzahl"]
+row = cur.fetchone()
+dokumente_count = row["anzahl"] if row else 0
 
-# Rechnungs-Summe
-cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'rechnung'")
-rechnungen_summe = cur.fetchone()["summe"]
+# ---------------------------------------------------
+# SUMMEN LADEN
+# ---------------------------------------------------
+def get_sum(typ):
+    cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = ?", (typ,))
+    row = cur.fetchone()
+    return row["summe"] if row else 0
 
-# Angebote-Summe
-cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'angebot'")
-angebote_summe = cur.fetchone()["summe"]
-
-# Quittungen-Summe
-cur.execute("SELECT IFNULL(SUM(summe), 0) AS summe FROM dokumente WHERE typ = 'quittung'")
-quittungen_summe = cur.fetchone()["summe"]
+rechnungen_summe = get_sum("rechnung")
+angebote_summe = get_sum("angebot")
+quittungen_summe = get_sum("quittung")
 
 conn.close()
 
+# ---------------------------------------------------
+# UI – METRICS
+# ---------------------------------------------------
 col1, col2, col3 = st.columns(3)
 
 with col1:
