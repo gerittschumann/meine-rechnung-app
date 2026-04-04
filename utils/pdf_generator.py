@@ -1,8 +1,15 @@
 from fpdf import FPDF
-from datetime import datetime
+
+def safe(text: str) -> str:
+    if not text:
+        return ""
+    return (
+        text.replace("–", "-")
+            .replace("×", "x")
+            .replace("€", "EUR")
+    )
 
 def generate_pdf(eintrag, kunde, firma, positionen):
-    # Sicherheit: sqlite3.Row → dict
     eintrag = dict(eintrag)
     kunde = dict(kunde)
     firma = dict(firma)
@@ -15,20 +22,18 @@ def generate_pdf(eintrag, kunde, firma, positionen):
     # FIRMENDATEN
     # ---------------------------------------------------
     pdf.set_font("Helvetica", size=12)
-
-    pdf.cell(0, 6, firma.get("firma_name", ""), ln=True)
-    pdf.cell(0, 6, firma.get("firma_adresse", ""), ln=True)
-    pdf.cell(0, 6, f"{firma.get('firma_plz', '')} {firma.get('firma_ort', '')}", ln=True)
-    pdf.ln(5)
+    pdf.cell(0, 6, safe(firma.get("firma_name", "")), ln=True)
+    pdf.cell(0, 6, safe(firma.get("firma_adresse", "")), ln=True)
+    pdf.cell(0, 6, safe(f"{firma.get('firma_plz', '')} {firma.get('firma_ort', '')}"), ln=True)
 
     if firma.get("steuernummer"):
-        pdf.cell(0, 6, f"Steuernummer: {firma.get('steuernummer')}", ln=True)
+        pdf.cell(0, 6, safe(f"Steuernummer: {firma.get('steuernummer')}"), ln=True)
 
     if firma.get("iban"):
-        pdf.cell(0, 6, f"IBAN: {firma.get('iban')}", ln=True)
+        pdf.cell(0, 6, safe(f"IBAN: {firma.get('iban')}"), ln=True)
 
     if firma.get("bic"):
-        pdf.cell(0, 6, f"BIC: {firma.get('bic')}", ln=True)
+        pdf.cell(0, 6, safe(f"BIC: {firma.get('bic')}"), ln=True)
 
     pdf.ln(10)
 
@@ -36,72 +41,54 @@ def generate_pdf(eintrag, kunde, firma, positionen):
     # KUNDENDATEN
     # ---------------------------------------------------
     pdf.set_font("Helvetica", size=12)
-    pdf.cell(0, 6, kunde.get("name", ""), ln=True)
-    pdf.cell(0, 6, kunde.get("adresse", ""), ln=True)
-    pdf.cell(0, 6, f"{kunde.get('plz', '')} {kunde.get('ort', '')}", ln=True)
+    pdf.cell(0, 6, safe(kunde.get("name", "")), ln=True)
+    pdf.cell(0, 6, safe(kunde.get("adresse", "")), ln=True)
+    pdf.cell(0, 6, safe(f"{kunde.get('plz', '')} {kunde.get('ort', '')}"), ln=True)
     pdf.ln(10)
 
     # ---------------------------------------------------
-    # DOKUMENTTITEL
+    # TITEL
     # ---------------------------------------------------
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, eintrag.get("dokument_typ", "Dokument"), ln=True)
+    pdf.cell(0, 10, safe(eintrag.get("dokument_typ", "Dokument")), ln=True)
 
     pdf.set_font("Helvetica", size=12)
-    pdf.cell(0, 6, f"Nummer: {eintrag.get('nummer', '')}", ln=True)
-    pdf.cell(0, 6, f"Datum: {eintrag.get('datum', '')}", ln=True)
+    pdf.cell(0, 6, safe(f"Nummer: {eintrag.get('nummer', '')}"), ln=True)
+    pdf.cell(0, 6, safe(f"Datum: {eintrag.get('datum', '')}"), ln=True)
     pdf.ln(10)
 
     # ---------------------------------------------------
-    # TEXTBLOCK (aus Einstellungen oder manuell)
+    # TEXTBLOCK
     # ---------------------------------------------------
     textblock = eintrag.get("text_rechnung", "")
-
     if textblock:
-        pdf.multi_cell(0, 6, textblock)
+        pdf.multi_cell(0, 6, safe(textblock))
         pdf.ln(5)
 
     # ---------------------------------------------------
-    # POSITIONEN – TABELLENFORMAT
+    # POSITIONEN
     # ---------------------------------------------------
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Leistungen / Positionen:", ln=True)
+    pdf.cell(0, 8, "Leistungen:", ln=True)
     pdf.set_font("Helvetica", size=12)
 
     gesamt = 0.0
 
     for pos in positionen:
-        pos = dict(pos)
-        bez = pos.get("bezeichnung", "")
+        bez = safe(pos.get("bezeichnung", ""))
         menge = pos.get("menge", 1)
         preis = pos.get("preis", 0.0)
         summe = menge * preis
         gesamt += summe
 
-        pdf.cell(0, 6, f"{bez} – {menge} × {preis:.2f} € = {summe:.2f} €", ln=True)
+        pdf.cell(0, 6, safe(f"{bez} - {menge} x {preis:.2f} EUR = {summe:.2f} EUR"), ln=True)
 
     pdf.ln(5)
 
     # ---------------------------------------------------
-    # GESAMTSUMME
+    # GESAMT
     # ---------------------------------------------------
     pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 10, f"Gesamtbetrag: {gesamt:.2f} €", ln=True)
+    pdf.cell(0, 10, safe(f"Gesamtbetrag: {gesamt:.2f} EUR"), ln=True)
 
-    # ---------------------------------------------------
-    # QUITTUNG – SIGNATUR
-    # ---------------------------------------------------
-    if eintrag.get("dokument_typ", "").lower() == "quittung":
-        pdf.ln(15)
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, "Unterschrift:", ln=True)
-
-        signatur = eintrag.get("signatur")
-        if signatur is not None:
-            # Signatur als PNG einfügen
-            pdf.image(signatur, x=10, w=80)
-
-    # ---------------------------------------------------
-    # PDF ALS BYTES ZURÜCKGEBEN
-    # ---------------------------------------------------
     return pdf.output(dest="S").encode("latin1")
