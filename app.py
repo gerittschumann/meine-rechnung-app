@@ -1,58 +1,38 @@
 import streamlit as st
-from utils.db import init_db
-init_db()
+from streamlit_option_menu import option_menu
 
-# ---------------------------------------------------
-# GRUNDEINSTELLUNGEN
-# ---------------------------------------------------
+# Seiten laden
+import pages.Übersicht as Übersicht
+import pages.Kunden as Kunden
+import pages.Rechnungen as Rechnungen
+import pages.Einstellungen as Einstellungen
+
+# Streamlit Layout
 st.set_page_config(
-    page_title="Nebengewerbe – Verwaltung",
-    page_icon="📊",
+    page_title="Meine Rechnung App",
+    page_icon="📄",
     layout="wide"
 )
 
-# ---------------------------------------------------
-# DATENBANK INITIALISIEREN
-# ---------------------------------------------------
-init_db()
+# Sidebar Navigation
+with st.sidebar:
+    selected = option_menu(
+        "Navigation",
+        ["Übersicht", "Kunden", "Rechnungen", "Einstellungen"],
+        icons=["house", "person", "file-text", "gear"],
+        menu_icon="cast",
+        default_index=0
+    )
 
-# ---------------------------------------------------
-# STARTSEITE / DASHBOARD
-# ---------------------------------------------------
-st.title("📊 Dashboard")
+# Seitenlogik
+if selected == "Übersicht":
+    Übersicht.show()
 
-st.write("""
-Willkommen in deiner Verwaltungs-App für dein Nebengewerbe.
+elif selected == "Kunden":
+    Kunden.show()
 
-Über die Navigation links kannst du:
-- Kunden verwalten
-- Rechnungen und Angebote erstellen
-- Quittungen erfassen
-- Fahrtenbuch führen
-- Finanzen und Jahresberichte einsehen
-- Einstellungen für Firmendaten pflegen
-- Archivierte Dokumente ansehen
-""")
+elif selected == "Rechnungen":
+    Rechnungen.show()
 
-st.write("---")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.subheader("👥 Kunden")
-    st.write("Verwalte deine Kundenstammdaten.")
-    st.write("➡️ Seite: **2_🧍_Kunden**")
-
-with col2:
-    st.subheader("📑 Rechnungen & Angebote")
-    st.write("Erstelle und verwalte Rechnungen und Angebote.")
-    st.write("➡️ Seite: **3_📑_Rechnung_Angebot**")
-
-with col3:
-    st.subheader("📦 Archiv")
-    st.write("Alle erzeugten Dokumente im Überblick.")
-    st.write("➡️ Seite: **8_📦_Archiv**")
-
-st.write("---")
-
-st.info("Hinweis: Die Daten werden in einer lokalen SQLite-Datenbank (`database.db`) gespeichert. PDFs liegen im Archiv-Ordner auf dem Server.")
+elif selected == "Einstellungen":
+    Einstellungen.show()
