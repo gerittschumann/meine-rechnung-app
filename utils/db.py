@@ -3,9 +3,9 @@ from pathlib import Path
 import datetime
 
 # ---------------------------------------------------
-# PERSISTENTER SPEICHERORT AUF RENDER
+# SPEICHERORT: Projektordner (Render löscht NICHTS, solange Datei nicht im Repo liegt)
 # ---------------------------------------------------
-DB_PATH = Path("/data/database.db")
+DB_PATH = Path("data/database.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -19,9 +19,12 @@ def get_connection():
 
 
 # ---------------------------------------------------
-# DATENBANK INITIALISIEREN
+# DATENBANK INITIALISIEREN (nur wenn DB NICHT existiert)
 # ---------------------------------------------------
 def init_db():
+    if DB_PATH.exists():
+        return  # NICHT überschreiben!
+
     conn = get_connection()
     cur = conn.cursor()
 
