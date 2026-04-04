@@ -32,7 +32,7 @@ cur.execute("""
         d.typ,
         d.nummer,
         d.summe,
-        d.pdf_path AS pdf,
+        d.pdf_path,
         d.erstellt_am,
         k.name AS kunde
     FROM dokumente d
@@ -40,7 +40,7 @@ cur.execute("""
     ORDER BY d.id DESC
 """)
 
-daten = cur.fetchall()
+daten = [dict(row) for row in cur.fetchall()]
 
 if not daten:
     st.info("Noch keine Dokumente im Archiv.")
@@ -61,8 +61,8 @@ st.subheader("📄 PDF herunterladen")
 # PDF DOWNLOAD-BEREICH
 # ---------------------------------------------------
 for row in daten:
-    nummer = row["Nummer"]
-    pdf_raw = row["PDF-Pfad"]
+    nummer = row["nummer"]
+    pdf_raw = row["pdf_path"]
 
     # PDF-Pfad fehlt → überspringen
     if not pdf_raw or str(pdf_raw).strip() == "":
@@ -86,7 +86,7 @@ for row in daten:
         data=pdf_bytes,
         file_name=pdf_path.name,
         mime="application/pdf",
-        key=f"download_{row['ID']}"
+        key=f"download_{row['id']}"
     )
 
 conn.close()
