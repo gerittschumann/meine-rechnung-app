@@ -1,4 +1,7 @@
 from fpdf import FPDF
+import tempfile
+import os
+
 
 def safe(text: str) -> str:
     if not text:
@@ -9,7 +12,8 @@ def safe(text: str) -> str:
             .replace("€", "EUR")
     )
 
-def generate_pdf(eintrag, kunde, firma, positionen):
+
+def generate_pdf(eintrag, kunde, firma, positionen, signatur_bytes: bytes | None = None):
     eintrag = dict(eintrag)
     kunde = dict(kunde)
     firma = dict(firma)
@@ -90,5 +94,26 @@ def generate_pdf(eintrag, kunde, firma, positionen):
     # ---------------------------------------------------
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 10, safe(f"Gesamtbetrag: {gesamt:.2f} EUR"), ln=True)
+
+    # ---------------------------------------------------
+    # UNTERSCHRIFT (nur bei Quittung)
+    # ---------------------------------------------------
+    if eintrag.get("dokument_typ", "").lower() == "quittung" and signatur_bytes:
+        pdf.ln(15)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Unterschrift:", ln=True)
+
+        # temporäre Datei für die Signatur
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            tmp.write(signatur_bytes)
+            tmp_path = tmp.name
+
+        try:
+            pdf.image(tmp_path, x=10, w=80)
+        finally:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
     return pdf.output(dest="S").encode("latin1")
