@@ -5,12 +5,18 @@ import datetime
 DB_PATH = Path("database.db")
 
 
+# ---------------------------------------------------
+# VERBINDUNG HERSTELLEN
+# ---------------------------------------------------
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
+# ---------------------------------------------------
+# DATENBANK INITIALISIEREN
+# ---------------------------------------------------
 def init_db():
     conn = get_connection()
     cur = conn.cursor()
@@ -63,7 +69,7 @@ def init_db():
     """)
 
     # ---------------------------------------------------
-    # POSITIONEN (Dokument-Positionen)
+    # POSITIONEN
     # ---------------------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS positionen (
@@ -114,14 +120,13 @@ def init_db():
 # ---------------------------------------------------
 # EINSTELLUNGEN LADEN / SPEICHERN
 # ---------------------------------------------------
-
 def load_einstellungen():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT * FROM einstellungen WHERE id = 1")
     row = cur.fetchone()
     conn.close()
-    return row
+    return dict(row) if row else None
 
 
 def save_einstellungen(data: dict):
@@ -153,7 +158,6 @@ def save_einstellungen(data: dict):
 # ---------------------------------------------------
 # DOKUMENTNUMMERN GENERIEREN
 # ---------------------------------------------------
-
 def generate_next_number(typ: str) -> str:
     conn = get_connection()
     cur = conn.cursor()
