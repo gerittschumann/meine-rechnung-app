@@ -7,4 +7,3 @@ python-dateutil==2.9.0
 pip
 setuptools
 wheel
-streamlit-signature-pad-fork
