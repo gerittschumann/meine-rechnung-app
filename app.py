@@ -1,6 +1,5 @@
 import streamlit as st
 from utils.db import init_db
-
 init_db()
 
 # ---------------------------------------------------
