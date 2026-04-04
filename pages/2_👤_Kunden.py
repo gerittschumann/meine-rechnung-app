@@ -78,3 +78,37 @@ def kunden_loeschen(id):
 
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------
+# STREAMLIT UI
+# ---------------------------------------------------
+
+st.title("Kunden")
+
+# Formular zum Anlegen eines neuen Kunden
+with st.form("kunden_formular"):
+    name = st.text_input("Name")
+    adresse = st.text_input("Adresse")
+    plz = st.text_input("PLZ")
+    ort = st.text_input("Ort")
+    email = st.text_input("E-Mail")
+    telefon = st.text_input("Telefon")
+
+    submitted = st.form_submit_button("Kunde anlegen")
+
+    if submitted:
+        kunden_anlegen(name, adresse, plz, ort, email, telefon)
+        st.success("Kunde wurde angelegt.")
+        st.experimental_rerun()
+
+# Kundenliste anzeigen
+st.subheader("Alle Kunden")
+
+kunden = kunden_laden()
+
+if kunden:
+    for k in kunden:
+        st.write(f"{k[0]} – {k[1]} – {k[2]} – {k[3]} – {k[4]} – {k[5]}")
+else:
+    st.info("Noch keine Kunden vorhanden.")
