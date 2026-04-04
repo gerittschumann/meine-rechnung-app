@@ -29,7 +29,7 @@ conn = get_connection()
 cur = conn.cursor()
 
 cur.execute("SELECT * FROM leistungen ORDER BY name ASC")
-leistungen = cur.fetchall()
+leistungen = [dict(row) for row in cur.fetchall()]
 
 # ---------------------------------------------------
 # LEISTUNGEN ANZEIGEN
@@ -74,13 +74,16 @@ with st.form("leistung_form"):
     submitted = st.form_submit_button("Speichern")
 
     if submitted:
-        cur.execute("""
-            INSERT INTO leistungen (name, preis, einheit, beschreibung)
-            VALUES (?, ?, ?, ?)
-        """, (name, preis, einheit, beschreibung))
+        if name.strip() == "":
+            st.error("Der Name darf nicht leer sein.")
+        else:
+            cur.execute("""
+                INSERT INTO leistungen (name, preis, einheit, beschreibung)
+                VALUES (?, ?, ?, ?)
+            """, (name, preis, einheit, beschreibung))
 
-        conn.commit()
-        st.success("Leistung gespeichert.")
-        st.experimental_rerun()
+            conn.commit()
+            st.success("Leistung gespeichert.")
+            st.experimental_rerun()
 
 conn.close()
