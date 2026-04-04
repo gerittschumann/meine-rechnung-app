@@ -1,16 +1,25 @@
 import streamlit as st
-from utils.db import get_connection
-from utils.pdf_generator import generate_pdf
+import datetime
+import pandas as pd
 import base64
-from streamlit_drawable_canvas import st_canvas
+
+from utils.db import get_connection, generate_next_number
+from utils.pdf_generator import generate_pdf
+from utils.pdf_utils import pdf_bytes_to_data_url, save_pdf_to_archiv
+
+try:
+    from streamlit_signature_pad import st_signature_pad
+    SIGNATURE_AVAILABLE = True
+except Exception:
+    SIGNATURE_AVAILABLE = False
 
 st.set_page_config(
-    page_title="🧾 Quittung erstellen",
+    page_title="🧾 Quittung",
     page_icon="🧾",
     layout="wide"
 )
 
-st.title("🧾 Quittung zu einer bestehenden Rechnung erstellen")
+st.title("🧾 Quittung erstellen")
 
 # ---------------------------------------------------
 # DB VERBINDUNG
@@ -18,120 +27,175 @@ st.title("🧾 Quittung zu einer bestehenden Rechnung erstellen")
 conn = get_connection()
 cur = conn.cursor()
 
-# ---------------------------------------------------
-# RECHNUNGEN LADEN
-# ---------------------------------------------------
-cur.execute("""
-    SELECT d.id, d.nummer, d.summe, k.name AS kunde, k.id AS kunde_id
-    FROM dokumente d
-    LEFT JOIN kunden k ON d.kunde_id = k.id
-    WHERE d.typ = 'rechnung'
-    ORDER BY d.id DESC
-""")
-rechnungen = [dict(r) for r in cur.fetchall()]
+# Kunden laden
+cur.execute("SELECT * FROM kunden ORDER BY name ASC")
+kunden = [dict(row) for row in cur.fetchall()]
 
-if not rechnungen:
-    st.warning("⚠️ Es existieren noch keine Rechnungen.")
-    st.stop()
+# Leistungen laden
+cur.execute("SELECT * FROM leistungen ORDER BY name ASC")
+leistungen = [dict(row) for row in cur.fetchall()]
 
-rechnungs_liste = [f"{r['id']} – {r['nummer']} – {r['kunde']}" for r in rechnungen]
-auswahl = st.selectbox("Rechnung auswählen", rechnungs_liste)
-
-rechnung_id = int(auswahl.split(" – ")[0])
-rechnung = next(r for r in rechnungen if r["id"] == rechnung_id)
-
-# ---------------------------------------------------
-# POSITIONEN LADEN
-# ---------------------------------------------------
-cur.execute("SELECT * FROM positionen WHERE dokument_id = ?", (rechnung_id,))
-positionen = [dict(p) for p in cur.fetchall()]
-
-# ---------------------------------------------------
-# KUNDENDATEN LADEN
-# ---------------------------------------------------
-cur.execute("SELECT * FROM kunden WHERE id = ?", (rechnung["kunde_id"],))
-kunde_row = cur.fetchone()
-kunde = dict(kunde_row) if kunde_row else {}
-
-# ---------------------------------------------------
-# FIRMENDATEN LADEN
-# ---------------------------------------------------
+# Einstellungen laden
 cur.execute("SELECT * FROM einstellungen WHERE id = 1")
-firma_row = cur.fetchone()
-firma = dict(firma_row) if firma_row else {}
+row = cur.fetchone()
+einstellungen = dict(row) if row else {}
 
 # ---------------------------------------------------
-# QUITTUNGSNUMMER
+# FORMULAR BASISDATEN
 # ---------------------------------------------------
-quittungsnummer = f"{rechnung['nummer']}-Q"
-st.write(f"**Quittungsnummer:** {quittungsnummer}")
+st.subheader("🧾 Quittungsdaten")
+
+nummer = generate_next_number("quittung")
+datum = st.date_input("Datum", datetime.date.today())
+
+kunde = st.selectbox("Kunde auswählen", kunden, format_func=lambda x: x["name"])
+
+st.write("---")
+st.subheader("🛒 Positionen hinzufügen")
+
+if "warenkorb_quittung" not in st.session_state:
+    st.session_state.warenkorb_quittung = []
+
+# Leistung auswählen
+auswahl = st.selectbox("Leistung auswählen", leistungen, format_func=lambda x: x["name"])
+
+menge = st.number_input("Menge", min_value=1.0, step=1.0, key="menge_quittung")
+preis = st.number_input("Preis überschreiben (optional)", min_value=0.0, step=0.5, key="preis_quittung")
+
+if st.button("➕ Position hinzufügen", key="add_pos_quittung"):
+    st.session_state.warenkorb_quittung.append({
+        "bezeichnung": auswahl["name"],
+        "menge": menge,
+        "preis": preis if preis > 0 else auswahl["preis"]
+    })
+    st.success("Position hinzugefügt.")
 
 # ---------------------------------------------------
-# SIGNATURFELD
-# ---------------------------------------------------
-st.subheader("✍️ Unterschrift erfassen")
-
-signature = st_canvas(
-    fill_color="rgba(0, 0, 0, 1)",
-    stroke_width=2,
-    stroke_color="#000000",
-    background_color="#FFFFFF",
-    height=200,
-    width=600,
-    drawing_mode="freedraw",
-    key="canvas_quittung",
-)
-
-signature_png = signature.image_data if signature.image_data is not None else None
-
-# ---------------------------------------------------
-# PDF-VORSCHAU
+# WARENKORB
 # ---------------------------------------------------
 st.write("---")
-st.subheader("👁️ Vorschau anzeigen (ohne Speichern)")
+st.subheader("📦 Warenkorb")
 
-if st.button("Vorschau anzeigen"):
-    if signature_png is None:
-        st.error("Bitte unterschreiben, bevor du die Vorschau anzeigen kannst.")
-        st.stop()
+if not st.session_state.warenkorb_quittung:
+    st.info("Noch keine Positionen hinzugefügt.")
+    gesamt = 0.0
+else:
+    df = pd.DataFrame(st.session_state.warenkorb_quittung)
+    df["Summe"] = df["menge"] * df["preis"]
+    st.dataframe(df, use_container_width=True)
 
-    eintrag = {
-        "dokument_typ": "Quittung",
-        "nummer": quittungsnummer,
-        "datum": "",
-        "text_rechnung": "Quittung zur Rechnung " + rechnung["nummer"],
-        "signatur": signature_png
-    }
+    gesamt = df["Summe"].sum()
+    st.metric("Gesamtbetrag", f"{gesamt:.2f} €")
 
-    pdf_bytes = generate_pdf(
-        eintrag,
-        kunde,
-        firma,
-        positionen
+    if st.button("🗑️ Warenkorb leeren", key="clear_cart_quittung"):
+        st.session_state.warenkorb_quittung = []
+        st.experimental_rerun()
+
+# ---------------------------------------------------
+# UNTERSCHRIFT
+# ---------------------------------------------------
+st.write("---")
+st.subheader("✍️ Unterschrift")
+
+signatur_bytes = None
+
+if not SIGNATURE_AVAILABLE:
+    st.warning("Signatur-Pad ist nicht verfügbar. (Paket 'streamlit_signature_pad' nicht installiert?)")
+else:
+    sig_data = st_signature_pad(
+        background_color="white",
+        pen_color="black",
+        key="signature_quittung"
     )
-
-    b64 = base64.b64encode(pdf_bytes).decode()
-    iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="900px"></iframe>'
-    st.markdown(iframe, unsafe_allow_html=True)
+    if sig_data:
+        try:
+            header, b64data = sig_data.split(",")
+            signatur_bytes = base64.b64decode(b64data)
+            st.success("Unterschrift erfasst.")
+        except Exception:
+            st.error("Unterschrift konnte nicht verarbeitet werden.")
 
 # ---------------------------------------------------
-# QUITTUNG FINAL SPEICHERN
+# PDF VORSCHAU
 # ---------------------------------------------------
 st.write("---")
-st.subheader("📄 Quittung final erstellen")
+st.subheader("📄 PDF Vorschau")
 
-if st.button("Quittung speichern"):
-    if signature_png is None:
-        st.error("Bitte unterschreiben, bevor du die Quittung speichern kannst.")
-        st.stop()
+if st.session_state.warenkorb_quittung:
+    if st.button("📄 Vorschau anzeigen", key="preview_quittung"):
+        eintrag = {
+            "dokument_typ": "Quittung",
+            "nummer": nummer,
+            "datum": datum.isoformat(),
+            "text_rechnung": einstellungen.get("text_quittung", "")
+        }
 
-    cur.execute("""
-        INSERT INTO dokumente (typ, nummer, kunde_id, summe)
-        VALUES ('quittung', ?, ?, ?)
-    """, (quittungsnummer, kunde["id"], rechnung["summe"]))
-    conn.commit()
+        pdf_bytes = generate_pdf(
+            eintrag,
+            kunde,
+            einstellungen,
+            st.session_state.warenkorb_quittung,
+            signatur_bytes=signatur_bytes
+        )
 
-    st.success("Quittung erfolgreich erstellt!")
-    st.balloons()
+        pdf_url = pdf_bytes_to_data_url(pdf_bytes)
+        st.markdown(f'<iframe src="{pdf_url}" width="100%" height="600px"></iframe>', unsafe_allow_html=True)
+
+# ---------------------------------------------------
+# SPEICHERN
+# ---------------------------------------------------
+st.write("---")
+st.subheader("💾 Quittung speichern")
+
+if st.session_state.warenkorb_quittung:
+    if st.button("💾 Speichern & PDF archivieren", key="save_quittung"):
+        eintrag = {
+            "dokument_typ": "Quittung",
+            "nummer": nummer,
+            "datum": datum.isoformat(),
+            "text_rechnung": einstellungen.get("text_quittung", "")
+        }
+
+        pdf_bytes = generate_pdf(
+            eintrag,
+            kunde,
+            einstellungen,
+            st.session_state.warenkorb_quittung,
+            signatur_bytes=signatur_bytes
+        )
+
+        # PDF archivieren
+        pdf_path = save_pdf_to_archiv(pdf_bytes, nummer)
+
+        # Dokument speichern
+        cur.execute("""
+            INSERT INTO dokumente (typ, nummer, kunde_id, pdf_path, summe)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            "quittung",
+            nummer,
+            kunde["id"],
+            str(pdf_path),
+            gesamt
+        ))
+        conn.commit()
+
+        # Positionen speichern
+        for pos in st.session_state.warenkorb_quittung:
+            cur.execute("""
+                INSERT INTO positionen (dokument_id, beschreibung, menge, preis, gesamt)
+                VALUES ((SELECT id FROM dokumente WHERE nummer = ?), ?, ?, ?, ?)
+            """, (
+                nummer,
+                pos["bezeichnung"],
+                pos["menge"],
+                pos["preis"],
+                pos["menge"] * pos["preis"]
+            ))
+        conn.commit()
+
+        st.success("Quittung gespeichert & PDF archiviert.")
+        st.session_state.warenkorb_quittung = []
+        st.experimental_rerun()
 
 conn.close()
