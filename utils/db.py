@@ -2,9 +2,11 @@ import sqlite3
 from pathlib import Path
 import datetime
 
-DB_PATH = Path("data/database.db")
+# ---------------------------------------------------
+# PERSISTENTER SPEICHERORT AUF RENDER
+# ---------------------------------------------------
+DB_PATH = Path("/data/database.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
 
 
 # ---------------------------------------------------
@@ -144,16 +146,18 @@ def save_einstellungen(data: dict):
 
     cur.execute("""
         INSERT INTO einstellungen (
-            id, firma_name, firma_adresse, firma_plz, firma_ort,
-            steuernummer, iban, bic,
+            id, firma_name, inhaber_name, firma_adresse, firma_plz, firma_ort,
+            firma_email, steuernummer, iban, bic,
             text_rechnung, text_angebot, text_quittung
         )
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data.get("firma_name", ""),
+        data.get("inhaber_name", ""),
         data.get("firma_adresse", ""),
         data.get("firma_plz", ""),
         data.get("firma_ort", ""),
+        data.get("firma_email", ""),
         data.get("steuernummer", ""),
         data.get("iban", ""),
         data.get("bic", ""),
